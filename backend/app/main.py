@@ -333,3 +333,29 @@ def index_repository_endpoint(
     background_tasks.add_task(background_index, repo.repo_url, index_path, repo_id)
 
     return {"message": "Indexing started"}
+
+@app.post("/repository/sync/{repo_id}")
+def sync_repository(
+    repo_id: int,
+    api_key: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    repo = db.query(Repository).filter(Repository.id == repo_id).first()
+
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    if not repo.sync_api_key or repo.sync_api_key != api_key:
+        raise HTTPException(status_code=401, detail="Unauthorized API key")
+
+    # mark indexing
+    repo.status = RepoStatus.INDEXING
+    db.commit()
+
+    index_path = os.path.abspath(f"indexes/repo_{repo_id}")
+    os.makedirs("indexes", exist_ok=True)
+
+    background_tasks.add_task(background_index, repo.repo_url, index_path, repo_id)
+
+    return {"message": "Repository sync and indexing started"}

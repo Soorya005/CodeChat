@@ -22,6 +22,7 @@ class Repository(Base):
 
     status = Column(Enum(RepoStatus), default=RepoStatus.NOT_INDEXED)
     faiss_index_path = Column(String(500), nullable=True)
+    sync_api_key = Column(String(64), unique=True, index=True, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

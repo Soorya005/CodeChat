@@ -1,12 +1,15 @@
 from sqlalchemy.orm import Session
 from app.models.repository import Repository, RepoStatus
 from fastapi import HTTPException
+import secrets
+
 def create_repository(db: Session, user_id: int, repo_url: str):
 
     repo = Repository(
         user_id=user_id,
         repo_url=repo_url,
-        status=RepoStatus.NOT_INDEXED
+        status=RepoStatus.NOT_INDEXED,
+        sync_api_key=secrets.token_hex(16)
     )
 
     db.add(repo)

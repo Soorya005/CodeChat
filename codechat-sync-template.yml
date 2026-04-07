@@ -1,0 +1,14 @@
+name: CodeChat Auto-Sync
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sync_codechat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping CodeChat Backend
+        run: |
+          curl -X POST "https://<YOUR_CODECHAT_DOMAIN>/repository/sync/<REPO_ID>?api_key=${{ secrets.CODECHAT_API_KEY }}"
