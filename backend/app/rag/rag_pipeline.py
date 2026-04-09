@@ -9,6 +9,7 @@ Install deps:
 import importlib
 import logging
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -58,10 +59,11 @@ class RAGConfig:
     llm_provider: str = "ollama"          # "ollama", "anthropic", "openai"
     llm_model: str = "llama3.2"
     llm_temperature: float = 0.0
-    llm_max_tokens: int = 4096
+    llm_max_tokens: int = 256
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
+    ollama_request_timeout: int = 60
 
     # API keys (loaded from env vars automatically)
     anthropic_api_key: Optional[str] = None
@@ -72,9 +74,22 @@ class RAGConfig:
             self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
         if not self.openai_api_key:
             self.openai_api_key = os.getenv("OPENAI_API_KEY")
+        llm_model = os.getenv("OLLAMA_MODEL") or os.getenv("LLM_MODEL")
+        if llm_model:
+            self.llm_model = llm_model
         ollama_url = os.getenv("OLLAMA_BASE_URL")
         if ollama_url:
             self.ollama_base_url = ollama_url
+        ollama_timeout = os.getenv("OLLAMA_REQUEST_TIMEOUT")
+        if ollama_timeout:
+            try:
+                self.ollama_request_timeout = int(ollama_timeout)
+            except ValueError:
+                logger.warning(
+                    "[RAG Config] Invalid OLLAMA_REQUEST_TIMEOUT='%s'; using default %s",
+                    ollama_timeout,
+                    self.ollama_request_timeout,
+                )
 
 
 @dataclass
@@ -144,11 +159,14 @@ class LLMClient:
                 logger.info(
                     "[LLM] Connected to Ollama. Available models: %s", available_models
                 )
-                if self.config.llm_model not in available_models:
-                    logger.warning(
-                        "[LLM] Model '%s' not in available Ollama models: %s",
-                        self.config.llm_model, available_models,
+                resolved_model = self._resolve_ollama_model_name(available_models)
+                if resolved_model != self.config.llm_model:
+                    logger.info(
+                        "[LLM] Using resolved Ollama model '%s' for requested '%s'",
+                        resolved_model,
+                        self.config.llm_model,
                     )
+                self.config.llm_model = resolved_model
             else:
                 logger.warning(
                     "[LLM] Could not list Ollama models (HTTP %d)", response.status_code
@@ -159,6 +177,32 @@ class LLMClient:
                 "Make sure Ollama is running: ollama serve",
                 self.base_url, exc,
             )
+
+    def _resolve_ollama_model_name(self, available_models: List[str]) -> str:
+        """Resolve configured model name to an available Ollama tag if needed."""
+        requested = self.config.llm_model
+        if not available_models:
+            return requested
+
+        if requested in available_models:
+            return requested
+
+        requested_base = requested.split(":", 1)[0]
+        for model_name in available_models:
+            if model_name.split(":", 1)[0] == requested_base:
+                logger.warning(
+                    "[LLM] Requested model '%s' not found; using '%s'",
+                    requested,
+                    model_name,
+                )
+                return model_name
+
+        logger.warning(
+            "[LLM] Model '%s' not in available Ollama models: %s",
+            requested,
+            available_models,
+        )
+        return requested
 
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """Generate a response from the configured LLM."""
@@ -203,18 +247,22 @@ class LLMClient:
             "stream": False,
             "options": {
                 "temperature": self.config.llm_temperature,
-                "num_predict": self.config.llm_max_tokens,
+                "num_predict": min(self.config.llm_max_tokens, 512),
             },
         }
 
         try:
-            response = requests.post(url, json=payload, timeout=300)
+            response = requests.post(
+                url,
+                json=payload,
+                timeout=self.config.ollama_request_timeout,
+            )
             response.raise_for_status()
             return response.json().get("response", "")
         except requests.exceptions.Timeout:
             raise RuntimeError(
                 f"Ollama request timed out. Model '{self.config.llm_model}' "
-                "may be slow or unavailable."
+                f"may be slow or unavailable (timeout={self.config.ollama_request_timeout}s)."
             )
         except requests.exceptions.RequestException as exc:
             raise RuntimeError(f"Ollama API error: {exc}")
@@ -384,6 +432,169 @@ class RAGPipeline:
         )
         return RetrievalResult(chunks=filtered, query=query, total_found=len(filtered))
 
+    def _build_fallback_answer(self, query: str, retrieved_chunks: List[Tuple]) -> str:
+        """Create a useful best-effort answer from retrieved chunks when LLM fails."""
+        if not retrieved_chunks:
+            return (
+                "I could not generate an LLM answer, and no relevant code context was retrieved."
+            )
+
+        query_tokens = [
+            token
+            for token in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", query.lower())
+            if len(token) > 2
+        ]
+
+        candidate_hits: List[Tuple[str, int, str]] = []
+        for metadata, _score in retrieved_chunks:
+            source_lines = metadata.source_text.splitlines()
+            for line_offset, source_line in enumerate(source_lines):
+                source_line_lower = source_line.lower()
+                if query_tokens and not any(token in source_line_lower for token in query_tokens):
+                    continue
+
+                if re.search(r"\b(login|signin|sign_in|authenticate|auth)\b", source_line_lower):
+                    line_number = metadata.start_line + line_offset
+                    candidate_hits.append(
+                        (metadata.file_path, line_number, source_line.strip())
+                    )
+                    if len(candidate_hits) >= 3:
+                        break
+            if len(candidate_hits) >= 3:
+                break
+
+        if candidate_hits:
+            formatted_hits = "\n".join(
+                f"- {file_path}:{line_number} → {snippet[:160]}"
+                for file_path, line_number, snippet in candidate_hits
+            )
+            return (
+                "LLM generation failed, but I found likely login-related code locations:\n"
+                f"{formatted_hits}"
+            )
+
+        top_files = []
+        for metadata, _score in retrieved_chunks[:3]:
+            top_files.append(f"- {metadata.file_path}:{metadata.start_line}")
+
+        return (
+            "LLM generation failed, but relevant code was retrieved. "
+            "Start with these files:\n"
+            + "\n".join(top_files)
+        )
+
+    @staticmethod
+    def _is_location_query(query: str) -> bool:
+        query_lower = query.lower()
+        has_where = "where" in query_lower
+        has_symbol = any(
+            token in query_lower
+            for token in [
+                "function",
+                "funtion",
+                "method",
+                "handler",
+                "authentication",
+                "authenctication",
+                "auth",
+                "login",
+                "signin",
+                "register",
+                "jwt",
+                "token",
+            ]
+        )
+        return has_where and has_symbol
+
+    def _build_location_answer(self, query: str, retrieved_chunks: List[Tuple]) -> Optional[str]:
+        """Return direct file/line hits for symbol-location style queries."""
+        if not retrieved_chunks:
+            return None
+
+        query_tokens = [
+            token
+            for token in re.findall(r"[a-zA-Z_][a-zA-Z0-9_]*", query.lower())
+            if len(token) > 2 and token not in {"where", "function", "funtion", "method", "handler"}
+        ]
+
+        login_like = any(token.startswith("log") or token.startswith("auth") for token in query_tokens)
+        patterns: List[re.Pattern[str]] = []
+        if login_like:
+            patterns.extend([
+                re.compile(r"\bfunction\s+login\b", re.IGNORECASE),
+                re.compile(r"\b(?:const|let|var)\s+login\s*=", re.IGNORECASE),
+                re.compile(r"\blogin\s*[:=]\s*function\b", re.IGNORECASE),
+                re.compile(r"\brouter\.(?:post|get)\s*\(\s*['\"]\/login['\"]", re.IGNORECASE),
+                re.compile(r"\bapp\.(?:post|get)\s*\(\s*['\"]\/login['\"]", re.IGNORECASE),
+                re.compile(r"\b(?:authenticate|authentication|auth)\b", re.IGNORECASE),
+                re.compile(r"\brouter\.(?:post|get|use)\s*\(", re.IGNORECASE),
+                re.compile(r"\bapp\.(?:post|get|use)\s*\(", re.IGNORECASE),
+            ])
+
+        if not patterns:
+            for token in query_tokens:
+                safe_token = re.escape(token)
+                patterns.append(re.compile(rf"\b{safe_token}\b", re.IGNORECASE))
+
+        scored_hits: List[Tuple[int, str, int, str]] = []
+        for metadata, _score in retrieved_chunks:
+            source_lines = metadata.source_text.splitlines()
+            file_lower = metadata.file_path.lower()
+            file_bonus = 0
+            if any(token in file_lower for token in ["auth", "route", "login"]):
+                file_bonus += 30
+            elif any(token in file_lower for token in ["server", "controller", "handler"]):
+                file_bonus += 15
+
+            for line_offset, source_line in enumerate(source_lines):
+                stripped = source_line.strip()
+                if not stripped:
+                    continue
+                if not any(pattern.search(source_line) for pattern in patterns):
+                    continue
+
+                line_score = 0
+                line_lower = stripped.lower()
+                if re.search(r"\b(function|def|async\s+function)\b", line_lower):
+                    line_score += 25
+                if re.search(r"\b(router|app)\.(post|get|use)\s*\(", line_lower):
+                    line_score += 30
+                if re.search(r"\b(login|signin|register|auth|authenticate|jwt|token)\b", line_lower):
+                    line_score += 20
+                if re.search(r"\bauth\s*:\s*\{", line_lower):
+                    line_score -= 15
+
+                total_score = file_bonus + line_score
+                line_number = metadata.start_line + line_offset
+                scored_hits.append((total_score, metadata.file_path, line_number, stripped))
+
+                if len(scored_hits) >= 20:
+                    break
+            if len(scored_hits) >= 20:
+                break
+
+        if not scored_hits:
+            return None
+
+        scored_hits.sort(key=lambda item: item[0], reverse=True)
+
+        deduped_hits: List[Tuple[str, int, str]] = []
+        seen = set()
+        for _score, file_path, line_number, snippet in scored_hits:
+            dedupe_key = (file_path, line_number)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            deduped_hits.append((file_path, line_number, snippet))
+            if len(deduped_hits) >= 3:
+                break
+
+        formatted_hits = "\n".join(
+            f"- {file_path}:{line_number} → {snippet[:140]}"
+            for file_path, line_number, snippet in deduped_hits
+        )
+        return f"Likely location(s) for your function:\n{formatted_hits}"
+
     # ── Full Query ───────────────────────────────────────────────
 
     def query(
@@ -420,6 +631,21 @@ class RAGPipeline:
                 metadata={"total_chunks_found": 0},
             )
 
+        if self._is_location_query(query):
+            location_answer = self._build_location_answer(query, retrieval_result.chunks)
+            if location_answer:
+                return RAGResponse(
+                    query=query,
+                    answer=location_answer,
+                    retrieved_chunks=retrieval_result.chunks,
+                    context_used="",
+                    metadata={
+                        "total_chunks_found": retrieval_result.total_found,
+                        "chunks_used": len(retrieval_result.chunks),
+                        "mode": "deterministic_location",
+                    },
+                )
+
         system_prompt = self.prompt_builder.build_system_prompt()
         user_prompt = self.prompt_builder.build_user_prompt(query, retrieval_result.chunks)
 
@@ -428,10 +654,7 @@ class RAGPipeline:
             answer = self.llm_client.generate(user_prompt, system_prompt)
         except Exception as exc:
             logger.warning("LLM generation failed: %s", exc)
-            answer = (
-                "LLM generation failed. Retrieved code context successfully "
-                "but could not generate answer."
-            )
+            answer = self._build_fallback_answer(query, retrieval_result.chunks)
 
         return RAGResponse(
             query=query,

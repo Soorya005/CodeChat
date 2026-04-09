@@ -13,7 +13,14 @@ from typing import List, Tuple
 logger = logging.getLogger(__name__)
 
 # Maximum number of retrieved chunks to include in a single prompt.
-MAX_CONTEXT_CHUNKS = 5
+MAX_CONTEXT_CHUNKS = 2
+MAX_CHUNK_CHARS = 800
+
+
+def _truncate_source_text(source_text: str) -> str:
+    if len(source_text) <= MAX_CHUNK_CHARS:
+        return source_text
+    return source_text[:MAX_CHUNK_CHARS] + "\n\n... [truncated for prompt size]"
 
 
 def format_code_chunk(metadata, score: float) -> str:
@@ -29,12 +36,14 @@ def format_code_chunk(metadata, score: float) -> str:
     Returns:
         A formatted string block for inclusion in the prompt.
     """
+    source_text = _truncate_source_text(metadata.source_text)
+
     return (
         f"[FILE: {metadata.file_path}]\n"
         f"[LANGUAGE: {metadata.language}]\n"
         f"[SYMBOL: {metadata.symbol_name} ({metadata.chunk_type})]\n"
         f"[LINES: {metadata.start_line}–{metadata.end_line}  |  RELEVANCE: {score:.3f}]\n\n"
-        f"{metadata.source_text}"
+        f"{source_text}"
     )
 
 

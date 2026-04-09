@@ -59,8 +59,15 @@ class CodeEmbedder:
                 "Install with: pip install sentence-transformers"
             )
 
+        embedding_local_only_env = os.getenv("EMBEDDING_LOCAL_ONLY", "true").strip().lower()
+        local_files_only = embedding_local_only_env not in {"0", "false", "no"}
+
         logger.info("[embedder] Loading model: %s", model_name)
-        self.model = SentenceTransformer(model_name, device=device)
+        self.model = SentenceTransformer(
+            model_name,
+            device=device,
+            local_files_only=local_files_only,
+        )
         self.model_name = model_name
         self.embedding_dim: int = self.model.get_sentence_embedding_dimension()
         logger.info("[embedder] Model loaded. Embedding dimension: %d", self.embedding_dim)

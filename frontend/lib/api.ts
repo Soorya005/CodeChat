@@ -4,6 +4,7 @@
  */
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+const QUERY_TIMEOUT_MS = 75000
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -103,6 +104,44 @@ export async function apiListRepositories(
   return handleResponse(res)
 }
 
+export interface RepositoryTreeNode {
+  name: string
+  path: string
+  type: "directory" | "file"
+  children?: RepositoryTreeNode[]
+}
+
+export interface RepositoryFileContent {
+  repo_id: number
+  file_path: string
+  content: string
+  truncated: boolean
+}
+
+export async function apiGetRepositoryTree(
+  token: string,
+  repo_id: number
+): Promise<{ repo_id: number; tree: RepositoryTreeNode[] }> {
+  const res = await fetch(`${BASE_URL}/repository/tree/${repo_id}`, {
+    headers: authHeaders(token),
+  })
+  return handleResponse(res)
+}
+
+export async function apiGetRepositoryFileContent(
+  token: string,
+  repo_id: number,
+  file_path: string
+): Promise<RepositoryFileContent> {
+  const res = await fetch(
+    `${BASE_URL}/repository/file-content/${repo_id}?file_path=${encodeURIComponent(file_path)}`,
+    {
+      headers: authHeaders(token),
+    }
+  )
+  return handleResponse(res)
+}
+
 // ─── Chat / Query ─────────────────────────────────────────────────────────────
 
 export interface QuerySource {
@@ -121,11 +160,25 @@ export async function apiQueryRepository(
   repo_id: number,
   query: string
 ): Promise<QueryResponse> {
-  const res = await fetch(
-    `${BASE_URL}/chat/query?repo_id=${repo_id}&query=${encodeURIComponent(query)}`,
-    { method: "POST", headers: authHeaders(token) }
-  )
-  return handleResponse(res)
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS)
+
+  try {
+    const res = await fetch(
+      `${BASE_URL}/chat/query?repo_id=${repo_id}&query=${encodeURIComponent(query)}`,
+      { method: "POST", headers: authHeaders(token), signal: controller.signal }
+    )
+    return handleResponse(res)
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(
+        `Request timed out after ${Math.floor(QUERY_TIMEOUT_MS / 1000)} seconds. Please try again.`
+      )
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+  }
 }
 
 export interface ChatHistoryItem {

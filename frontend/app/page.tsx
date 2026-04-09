@@ -7,29 +7,47 @@ import { Header } from "@/components/header"
 import { ChatSidebar, type ChatSession } from "@/components/chat-sidebar"
 import { GitHubInput } from "@/components/github-input"
 import { AIExplanationPanel, type Message } from "@/components/ai-explanation-panel"
+import { FilePreview } from "@/components/file-preview"
+import { RepositoryTree } from "@/components/repository-tree"
 import { QueryInput } from "@/components/query-input"
 import { Button } from "@/components/ui/button"
 import { PanelLeftClose, PanelLeft } from "lucide-react"
 import {
   apiAddRepository,
+  apiGetRepositoryFileContent,
+  apiGetRepositoryTree,
   apiIndexRepository,
   apiGetRepositoryStatus,
   apiQueryRepository,
   type QuerySource,
+  type RepositoryTreeNode,
 } from "@/lib/api"
+
+type StoredChatSession = ChatSession & {
+  history?: Message[]
+  repoUrl?: string | null
+  repoId?: number | null
+  repoStatus?: "idle" | "loading" | "success" | "error"
+}
 
 export default function Home() {
   const { user, token, isLoading: authLoading } = useAuth()
   const router = useRouter()
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [sessions, setSessions] = useState<ChatSession[]>([])
+  const [sessions, setSessions] = useState<StoredChatSession[]>([])
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [isLoadingRepo, setIsLoadingRepo] = useState(false)
   const [repoStatus, setRepoStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
   const [currentRepo, setCurrentRepo] = useState<string | null>(null)
   const [currentRepoId, setCurrentRepoId] = useState<number | null>(null)
+  const [fileTree, setFileTree] = useState<RepositoryTreeNode[]>([])
+  const [isLoadingTree, setIsLoadingTree] = useState(false)
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null)
+  const [selectedFileContent, setSelectedFileContent] = useState("")
+  const [isLoadingFileContent, setIsLoadingFileContent] = useState(false)
+  const [isFileContentTruncated, setIsFileContentTruncated] = useState(false)
   const [isLoadingMessage, setIsLoadingMessage] = useState(false)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -45,20 +63,67 @@ export default function Home() {
     if (savedSessions) {
       const parsed = JSON.parse(savedSessions)
       setSessions(
-        parsed.map((s: ChatSession) => ({
+        parsed.map((s: StoredChatSession) => ({
           ...s,
           timestamp: new Date(s.timestamp),
+          history: (s.history ?? []).map((m: Message) => ({
+            ...m,
+            timestamp: new Date(m.timestamp),
+          })),
         }))
       )
     }
   }, [])
 
+  const loadRepositoryTree = async (repoId: number): Promise<RepositoryTreeNode[]> => {
+    if (!token) return []
+
+    setIsLoadingTree(true)
+    try {
+      const result = await apiGetRepositoryTree(token, repoId)
+      setFileTree(result.tree)
+
+      return result.tree
+    } catch (err) {
+      console.error("Failed to load repository tree:", err)
+      setFileTree([])
+      return []
+    } finally {
+      setIsLoadingTree(false)
+    }
+  }
+
   // Persist sessions
   useEffect(() => {
     if (sessions.length > 0) {
-      localStorage.setItem("rag_chat_sessions", JSON.stringify(sessions))
+      const persistedSessions = sessions.map(({ history, ...session }) => ({
+        ...session,
+        history,
+      }))
+      localStorage.setItem("rag_chat_sessions", JSON.stringify(persistedSessions))
+      return
     }
+    localStorage.removeItem("rag_chat_sessions")
   }, [sessions])
+
+  const handleSelectFile = async (filePath: string) => {
+    if (!token || currentRepoId === null) return
+
+    setSelectedFilePath(filePath)
+    setIsLoadingFileContent(true)
+    setIsFileContentTruncated(false)
+    try {
+      const result = await apiGetRepositoryFileContent(token, currentRepoId, filePath)
+      setSelectedFileContent(result.content)
+      setIsFileContentTruncated(result.truncated)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not load file"
+      setSelectedFileContent(`Unable to preview file: ${message}`)
+      setIsFileContentTruncated(false)
+    } finally {
+      setIsLoadingFileContent(false)
+    }
+  }
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -68,30 +133,61 @@ export default function Home() {
   }, [])
 
   const handleNewSession = () => {
-    const newSession: ChatSession = {
+    const newSession: StoredChatSession = {
       id: crypto.randomUUID(),
       title: "New Chat",
       timestamp: new Date(),
       messages: 0,
+      history: [],
+      repoUrl: null,
+      repoId: null,
+      repoStatus: "idle",
     }
-    setSessions((prev: ChatSession[]) => [newSession, ...prev])
+    setSessions((prev: StoredChatSession[]) => [newSession, ...prev])
     setActiveSessionId(newSession.id)
     setMessages([])
     setCurrentRepo(null)
     setCurrentRepoId(null)
+    setFileTree([])
+    setSelectedFilePath(null)
+    setSelectedFileContent("")
+    setIsFileContentTruncated(false)
     setRepoStatus("idle")
   }
 
   const handleSelectSession = (id: string) => {
+    const selectedSession = sessions.find((s: StoredChatSession) => s.id === id) as StoredChatSession | undefined
     setActiveSessionId(id)
-    setMessages([])
+    setMessages(selectedSession?.history ?? [])
+    setCurrentRepo(selectedSession?.repoUrl ?? null)
+    setCurrentRepoId(selectedSession?.repoId ?? null)
+    setRepoStatus(selectedSession?.repoStatus ?? "idle")
+    setFileTree([])
+    setSelectedFilePath(null)
+    setSelectedFileContent("")
+    setIsFileContentTruncated(false)
+
+    if (
+      selectedSession?.repoStatus === "success" &&
+      selectedSession.repoId !== null &&
+      selectedSession.repoId !== undefined
+    ) {
+      void loadRepositoryTree(selectedSession.repoId)
+    }
   }
 
   const handleDeleteSession = (id: string) => {
-    setSessions((prev: ChatSession[]) => prev.filter((s: ChatSession) => s.id !== id))
+    setSessions((prev: StoredChatSession[]) => prev.filter((s: StoredChatSession) => s.id !== id))
     if (activeSessionId === id) {
       setActiveSessionId(null)
       setMessages([])
+      setCurrentRepo(null)
+      setCurrentRepoId(null)
+      setFileTree([])
+      setSelectedFilePath(null)
+      setSelectedFileContent("")
+      setIsFileContentTruncated(false)
+      setRepoStatus("idle")
     }
   }
 
@@ -99,7 +195,12 @@ export default function Home() {
   const handleLoadRepo = async (url: string) => {
     if (!token) return
     setIsLoadingRepo(true)
+    setIsLoadingTree(true)
     setRepoStatus("loading")
+    setFileTree([])
+    setSelectedFilePath(null)
+    setSelectedFileContent("")
+    setIsFileContentTruncated(false)
 
     try {
       // Step 1: Register the repo in the database
@@ -125,32 +226,56 @@ export default function Home() {
             setRepoStatus("success")
             setIsLoadingRepo(false)
 
+            const starterMessage: Message = {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content: `✅ Repository indexed successfully! I've processed the codebase and I'm ready to answer your questions. What would you like to know?`,
+              timestamp: new Date(),
+            }
+
             // Create a session if none exists
-            if (!activeSessionId) {
+            let targetSessionId = activeSessionId
+            if (!targetSessionId) {
               const repoName = url.match(/github\.com\/([^/]+\/[^/]+)/)?.[1] || "Repository"
-              const newSession: ChatSession = {
+              const newSession: StoredChatSession = {
                 id: crypto.randomUUID(),
                 title: repoName,
                 timestamp: new Date(),
                 messages: 0,
+                history: [],
+                repoUrl: url,
+                repoId,
+                repoStatus: "success",
               }
-              setSessions((prev: ChatSession[]) => [newSession, ...prev])
+              targetSessionId = newSession.id
+              setSessions((prev: StoredChatSession[]) => [newSession, ...prev])
               setActiveSessionId(newSession.id)
             }
 
-            setMessages([
-              {
-                id: crypto.randomUUID(),
-                role: "assistant",
-                content: `✅ Repository indexed successfully! I've processed the codebase and I'm ready to answer your questions. What would you like to know?`,
-                timestamp: new Date(),
-              },
-            ])
+            await loadRepositoryTree(repoId)
+
+            setMessages([starterMessage])
+            setSessions((prev: StoredChatSession[]) =>
+              prev.map((s: StoredChatSession) =>
+                s.id === targetSessionId
+                  ? {
+                    ...s,
+                    repoUrl: url,
+                    repoId,
+                    repoStatus: "success",
+                    history: [starterMessage],
+                    messages: 1,
+                    timestamp: new Date(),
+                  }
+                  : s
+              )
+            )
           } else if (statusResult.status === "FAILED") {
             clearInterval(pollingRef.current!)
             pollingRef.current = null
             setRepoStatus("error")
             setIsLoadingRepo(false)
+            setIsLoadingTree(false)
           }
           // else "INDEXING" → keep polling
         } catch {
@@ -158,12 +283,14 @@ export default function Home() {
           pollingRef.current = null
           setRepoStatus("error")
           setIsLoadingRepo(false)
+          setIsLoadingTree(false)
         }
       }, 3000)
     } catch (err: unknown) {
       console.error("Failed to load repository:", err)
       setRepoStatus("error")
       setIsLoadingRepo(false)
+      setIsLoadingTree(false)
     }
   }
 
@@ -180,13 +307,18 @@ export default function Home() {
     setMessages((prev: Message[]) => [...prev, userMessage])
     setIsLoadingMessage(true)
 
-    setSessions((prev: ChatSession[]) =>
-      prev.map((s: ChatSession) =>
+    setSessions((prev: StoredChatSession[]) =>
+      prev.map((s: StoredChatSession) =>
         s.id === activeSessionId
           ? {
             ...s,
             messages: s.messages + 1,
             title: s.messages === 0 ? query.slice(0, 40) + "..." : s.title,
+            history: [...(s.history ?? []), userMessage],
+            repoUrl: currentRepo,
+            repoId: currentRepoId,
+            repoStatus,
+            timestamp: new Date(),
           }
           : s
       )
@@ -213,6 +345,18 @@ export default function Home() {
           : undefined,
       }
       setMessages((prev: Message[]) => [...prev, assistantMessage])
+      setSessions((prev: StoredChatSession[]) =>
+        prev.map((s: StoredChatSession) =>
+          s.id === activeSessionId
+            ? {
+              ...s,
+              messages: s.messages + 1,
+              history: [...(s.history ?? []), assistantMessage],
+              timestamp: new Date(),
+            }
+            : s
+        )
+      )
     } catch (err: unknown) {
       const errorMessage: Message = {
         id: crypto.randomUUID(),
@@ -221,13 +365,20 @@ export default function Home() {
         timestamp: new Date(),
       }
       setMessages((prev: Message[]) => [...prev, errorMessage])
-    } finally {
-      setIsLoadingMessage(false)
-      setSessions((prev: ChatSession[]) =>
-        prev.map((s: ChatSession) =>
-          s.id === activeSessionId ? { ...s, messages: s.messages + 1 } : s
+      setSessions((prev: StoredChatSession[]) =>
+        prev.map((s: StoredChatSession) =>
+          s.id === activeSessionId
+            ? {
+              ...s,
+              messages: s.messages + 1,
+              history: [...(s.history ?? []), errorMessage],
+              timestamp: new Date(),
+            }
+            : s
         )
       )
+    } finally {
+      setIsLoadingMessage(false)
     }
   }
 
@@ -284,6 +435,20 @@ export default function Home() {
             isLoading={isLoadingRepo}
             status={repoStatus}
             currentRepo={currentRepo}
+          />
+
+          <RepositoryTree
+            tree={fileTree}
+            isLoading={isLoadingTree}
+            selectedFilePath={selectedFilePath}
+            onSelectFile={handleSelectFile}
+          />
+
+          <FilePreview
+            filePath={selectedFilePath}
+            content={selectedFileContent}
+            isLoading={isLoadingFileContent}
+            truncated={isFileContentTruncated}
           />
 
           {/* AI Explanations Panel */}
