@@ -7,6 +7,7 @@ import shutil
 from pydantic import BaseModel
 from threading import Lock
 from typing import Any, Dict, List
+from dotenv import load_dotenv
 
 import app.models
 
@@ -35,6 +36,8 @@ from app.services.chat_service import (
 from app.rag.rag_pipeline import RAGPipeline, RAGConfig
 from app.rag.ingestion import clone_repository
 from app.database.database import SessionLocal
+
+load_dotenv()
 
 app = FastAPI()
 

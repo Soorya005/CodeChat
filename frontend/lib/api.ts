@@ -4,7 +4,10 @@
  */
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
-const QUERY_TIMEOUT_MS = 75000
+const queryTimeoutMsEnv = Number(process.env.NEXT_PUBLIC_QUERY_TIMEOUT_MS)
+const QUERY_TIMEOUT_MS = Number.isFinite(queryTimeoutMsEnv) && queryTimeoutMsEnv > 0
+  ? queryTimeoutMsEnv
+  : 180000
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 

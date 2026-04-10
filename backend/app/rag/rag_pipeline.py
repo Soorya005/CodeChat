@@ -12,6 +12,7 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
+from dotenv import load_dotenv
 
 from app.rag.ingestion import load_repository
 from app.rag.chunking import chunk_repository, CodeChunk
@@ -20,6 +21,7 @@ from app.rag.vector_store import VectorStore, create_vector_store
 from app.rag.prompt_builder import build_prompt
 
 logger = logging.getLogger(__name__)
+load_dotenv()
 
 try:
     anthropic = importlib.import_module("anthropic")
@@ -63,20 +65,48 @@ class RAGConfig:
 
     # Ollama
     ollama_base_url: str = "http://localhost:11434"
-    ollama_request_timeout: int = 60
+    ollama_request_timeout: int = 180
 
     # API keys (loaded from env vars automatically)
     anthropic_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
 
     def __post_init__(self):
+        llm_provider = os.getenv("LLM_PROVIDER") or os.getenv("RAG_LLM_PROVIDER")
+        if llm_provider:
+            self.llm_provider = llm_provider.strip().lower()
+
         if not self.anthropic_api_key:
             self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
         if not self.openai_api_key:
             self.openai_api_key = os.getenv("OPENAI_API_KEY")
+
         llm_model = os.getenv("OLLAMA_MODEL") or os.getenv("LLM_MODEL")
         if llm_model:
             self.llm_model = llm_model
+
+        llm_temperature = os.getenv("LLM_TEMPERATURE")
+        if llm_temperature:
+            try:
+                self.llm_temperature = float(llm_temperature)
+            except ValueError:
+                logger.warning(
+                    "[RAG Config] Invalid LLM_TEMPERATURE='%s'; using default %.2f",
+                    llm_temperature,
+                    self.llm_temperature,
+                )
+
+        llm_max_tokens = os.getenv("LLM_MAX_TOKENS")
+        if llm_max_tokens:
+            try:
+                self.llm_max_tokens = int(llm_max_tokens)
+            except ValueError:
+                logger.warning(
+                    "[RAG Config] Invalid LLM_MAX_TOKENS='%s'; using default %d",
+                    llm_max_tokens,
+                    self.llm_max_tokens,
+                )
+
         ollama_url = os.getenv("OLLAMA_BASE_URL")
         if ollama_url:
             self.ollama_base_url = ollama_url
@@ -241,31 +271,53 @@ class LLMClient:
         url = f"{self.base_url}/api/generate"
         full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
 
-        payload = {
-            "model": self.config.llm_model,
-            "prompt": full_prompt,
-            "stream": False,
-            "options": {
-                "temperature": self.config.llm_temperature,
-                "num_predict": min(self.config.llm_max_tokens, 512),
-            },
-        }
+        max_predict = min(self.config.llm_max_tokens, 512)
+        attempts = [
+            (self.config.ollama_request_timeout, max_predict),
+            (max(self.config.ollama_request_timeout, 240), max(96, max_predict // 2)),
+        ]
 
-        try:
-            response = requests.post(
-                url,
-                json=payload,
-                timeout=self.config.ollama_request_timeout,
-            )
-            response.raise_for_status()
-            return response.json().get("response", "")
-        except requests.exceptions.Timeout:
+        last_error: Optional[Exception] = None
+
+        for attempt_idx, (timeout_seconds, num_predict) in enumerate(attempts, start=1):
+            payload = {
+                "model": self.config.llm_model,
+                "prompt": full_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": self.config.llm_temperature,
+                    "num_predict": num_predict,
+                },
+            }
+
+            try:
+                response = requests.post(
+                    url,
+                    json=payload,
+                    timeout=timeout_seconds,
+                )
+                response.raise_for_status()
+                return response.json().get("response", "")
+            except (requests.exceptions.Timeout, requests.exceptions.RequestException) as exc:
+                last_error = exc
+                if attempt_idx < len(attempts):
+                    logger.warning(
+                        "[LLM] Ollama attempt %d/%d failed (%s). Retrying with timeout=%ds num_predict=%d",
+                        attempt_idx,
+                        len(attempts),
+                        exc,
+                        attempts[attempt_idx][0],
+                        attempts[attempt_idx][1],
+                    )
+                    continue
+                break
+
+        if isinstance(last_error, requests.exceptions.Timeout):
             raise RuntimeError(
-                f"Ollama request timed out. Model '{self.config.llm_model}' "
-                f"may be slow or unavailable (timeout={self.config.ollama_request_timeout}s)."
+                f"Ollama request timed out after retries. Model '{self.config.llm_model}' "
+                f"may be slow or unavailable (base_timeout={self.config.ollama_request_timeout}s)."
             )
-        except requests.exceptions.RequestException as exc:
-            raise RuntimeError(f"Ollama API error: {exc}")
+        raise RuntimeError(f"Ollama API error after retries: {last_error}")
 
 
 # ─── Prompt Builder (internal) ────────────────────────────────────
@@ -650,11 +702,45 @@ class RAGPipeline:
         user_prompt = self.prompt_builder.build_user_prompt(query, retrieval_result.chunks)
 
         logger.info("[LLM] Generating answer via %s…", self.config.llm_provider)
+        answer: str
+        generation_error: Optional[str] = None
+        used_compact_retry = False
+
         try:
             answer = self.llm_client.generate(user_prompt, system_prompt)
         except Exception as exc:
             logger.warning("LLM generation failed: %s", exc)
-            answer = self._build_fallback_answer(query, retrieval_result.chunks)
+            generation_error = str(exc)
+            answer = ""
+
+            can_retry_timeout = (
+                self.config.llm_provider == "ollama"
+                and "timed out" in str(exc).lower()
+            )
+            if can_retry_timeout:
+                compact_chunks = retrieval_result.chunks[:1]
+                compact_prompt = self.prompt_builder.build_user_prompt(query, compact_chunks)
+                retry_timeout = max(self.config.ollama_request_timeout, 240)
+
+                logger.info(
+                    "[LLM] Retrying timed-out generation with compact context (1 chunk) and timeout=%ds",
+                    retry_timeout,
+                )
+
+                self.config.ollama_request_timeout = retry_timeout
+                if self.llm_client and hasattr(self.llm_client, "config"):
+                    self.llm_client.config.ollama_request_timeout = retry_timeout
+
+                try:
+                    answer = self.llm_client.generate(compact_prompt, system_prompt)
+                    used_compact_retry = True
+                    generation_error = None
+                except Exception as retry_exc:
+                    logger.warning("LLM retry failed: %s", retry_exc)
+                    generation_error = f"{exc}; retry: {retry_exc}"
+
+            if not answer:
+                answer = self._build_fallback_answer(query, retrieval_result.chunks)
 
         return RAGResponse(
             query=query,
@@ -666,6 +752,8 @@ class RAGPipeline:
                 "chunks_used": len(retrieval_result.chunks),
                 "llm_model": self.config.llm_model,
                 "embedding_model": self.config.embedding_model,
+                "used_compact_retry": used_compact_retry,
+                "generation_error": generation_error,
             },
         )
 

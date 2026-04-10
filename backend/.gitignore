@@ -5,10 +5,18 @@ __pycache__/
 # Virtual environment
 venv/
 venv311/
+.venv/
 
 # Environment variables
 .env
 .env.*
+!.env.example
+
+# Local runtime artifacts
+codechat.db
+indexes/
+uploads/
+extracted/
 
 # VS Code
 .vscode/

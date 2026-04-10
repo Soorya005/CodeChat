@@ -71,23 +71,23 @@ class VectorStore:
     def _build_index(self):
         """Build the FAISS index appropriate for index_type."""
         if self.index_type == "flat":
-            self.index = faiss.IndexFlatL2(self.embedding_dim)
+            self.index = faiss.IndexFlatIP(self.embedding_dim)
             logger.info(
-                "[vector_store] Created FLAT index (exact search, dim=%d)", self.embedding_dim
+                "[vector_store] Created FLAT index (exact IP search, dim=%d)", self.embedding_dim
             )
 
         elif self.index_type == "ivf":
-            quantizer = faiss.IndexFlatL2(self.embedding_dim)
-            self.index = faiss.IndexIVFFlat(quantizer, self.embedding_dim, 100)
+            quantizer = faiss.IndexFlatIP(self.embedding_dim)
+            self.index = faiss.IndexIVFFlat(quantizer, self.embedding_dim, 100, faiss.METRIC_INNER_PRODUCT)
             self._needs_training = True
             logger.info(
-                "[vector_store] Created IVF index (approximate search, dim=%d)", self.embedding_dim
+                "[vector_store] Created IVF index (approximate IP search, dim=%d)", self.embedding_dim
             )
 
         elif self.index_type == "hnsw":
-            self.index = faiss.IndexHNSWFlat(self.embedding_dim, 32)
+            self.index = faiss.IndexHNSWFlat(self.embedding_dim, 32, faiss.METRIC_INNER_PRODUCT)
             logger.info(
-                "[vector_store] Created HNSW index (fast approximate search, dim=%d)",
+                "[vector_store] Created HNSW index (fast approximate IP search, dim=%d)",
                 self.embedding_dim,
             )
 
@@ -129,6 +129,8 @@ class VectorStore:
             self.index.train(embeddings)
             self._needs_training = False
 
+        # Normalize for cosine similarity via Inner Product
+        faiss.normalize_L2(embeddings)
         self.index.add(embeddings)
 
         for i, chunk in enumerate(embedded_chunks):
@@ -172,14 +174,16 @@ class VectorStore:
             return []
 
         query = np.array([query_embedding], dtype=np.float32)
+        # Normalize query vector for cosine similarity
+        faiss.normalize_L2(query)
 
         # If filters are active we retrieve more candidates and then prune
         search_k = min(top_k * 10 if filters else top_k, self.chunk_count)
 
-        distances, indices = self.index.search(query, search_k)
+        scores, indices = self.index.search(query, search_k)
 
         results: List[Tuple[ChunkMetadata, float]] = []
-        for distance, idx in zip(distances[0], indices[0]):
+        for score, idx in zip(scores[0], indices[0]):
             if idx == -1:  # FAISS sentinel for empty slots
                 continue
 
@@ -188,8 +192,8 @@ class VectorStore:
             if filters and not self._matches_filters(metadata, filters):
                 continue
 
-            # Convert L2 distance to a similarity score: higher = better
-            similarity_score = -float(distance)
+            # With normalized vectors and IP index, score IS cosine similarity [0, 1]
+            similarity_score = float(score)
             results.append((metadata, similarity_score))
 
             if len(results) >= top_k:
