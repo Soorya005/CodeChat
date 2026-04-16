@@ -228,7 +228,12 @@ def _build_tree_nodes(relative_paths: List[str]) -> List[Dict[str, Any]]:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -312,7 +317,8 @@ def add_repository(
     return {
         "repository_id": repo.id,
         "repo_url": repo.repo_url,
-        "status": repo.status
+        "status": repo.status,
+        "sync_api_key": repo.sync_api_key
     }
 
 
