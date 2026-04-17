@@ -1,7 +1,7 @@
 "use client"
 
-import { ScrollArea } from "@/components/ui/scroll-area"
-import { Bot, Code, FileCode, Sparkles } from "lucide-react"
+import { useEffect, useRef } from "react"
+import { Bot, FileCode } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 export interface Message {
@@ -72,9 +72,21 @@ function MessageContentFormatter({ content }: { content: string }) {
 }
 
 export function AIExplanationPanel({ messages, isLoading }: AIExplanationPanelProps) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   }
+
+  useEffect(() => {
+    const node = scrollContainerRef.current
+    if (!node) return
+
+    node.scrollTo({
+      top: node.scrollHeight,
+      behavior: "smooth",
+    })
+  }, [messages, isLoading])
 
   return (
     <div className="h-full flex flex-col w-full min-h-0">
@@ -86,7 +98,7 @@ export function AIExplanationPanel({ messages, isLoading }: AIExplanationPanelPr
       </div>
 
       <div className="flex-1 min-h-0 relative">
-        <ScrollArea className="absolute inset-0 w-full">
+        <div ref={scrollContainerRef} className="absolute inset-0 w-full overflow-y-auto">
           <div className="p-4 space-y-6 pb-6">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center select-none">
@@ -174,7 +186,7 @@ export function AIExplanationPanel({ messages, isLoading }: AIExplanationPanelPr
             </div>
           )}
         </div>
-        </ScrollArea>
+        </div>
       </div>
     </div>
   )

@@ -51,6 +51,16 @@ npm run dev
 
 Frontend runs at: `http://localhost:3000`
 
+### Windows quick start
+
+From PowerShell in the repo root, run:
+
+```powershell
+.\run.ps1
+```
+
+This starts the backend and frontend together.
+
 ## 6) First run flow
 
 1. Register and login in UI
