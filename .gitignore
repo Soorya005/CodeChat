@@ -1,2 +1,45 @@
+# ─── Secrets (NEVER commit real keys) ───────────────────────────
+.env
+backend/.env
+frontend/.env.local
+# Keep .env.example — it has placeholder values only
+
+# ─── Database ───────────────────────────────────────────────────
+*.db
 codechat.db
+
+# ─── Logs ───────────────────────────────────────────────────────
 *.log
+logs/
+
+# ─── Python ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# ─── FAISS indexes (can be large, regenerated on demand) ────────
+backend/indexes/
+
+# ─── Node / Next.js ─────────────────────────────────────────────
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+.npm
+
+# ─── OS / Editor ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
