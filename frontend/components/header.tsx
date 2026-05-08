@@ -16,11 +16,11 @@ export function Header() {
   const { user, logout } = useAuth()
 
   return (
-    <header className="h-12 border-b border-white/[0.06] bg-black/95 backdrop-blur-xl flex items-center justify-between px-4 sticky top-0 z-40">
+    <header className="h-12 border-b border-white/[0.06] bg-black/95 backdrop-blur-xl flex items-center justify-between px-4 flex-shrink-0 z-40">
       {/* Logo */}
       <Link href="/landing" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-        <div className="w-7 h-7 rounded-lg bg-blue-500 flex items-center justify-center shadow-md shadow-blue-500/20">
-          <Code2 className="h-3.5 w-3.5 text-white" />
+        <div className="w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center shadow-md shadow-blue-500/20 bg-black">
+          <img src="/logo.png" alt="CodeChat Logo" className="w-full h-full object-cover" />
         </div>
         <span className="font-semibold text-white text-sm tracking-tight">CodeChat</span>
         <span className="text-[10px] font-medium text-blue-400/80 px-1.5 py-0.5 rounded-full border border-blue-500/20 bg-blue-500/10">
@@ -31,20 +31,29 @@ export function Header() {
       {/* Right */}
       <div className="flex items-center gap-3">
         <nav className="hidden md:flex items-center gap-1 text-sm">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-white/50 hover:text-white hover:bg-white/5 text-xs h-8"
+          <a
+            href="https://github.com/Soorya005/cclatest"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center rounded-md text-xs font-medium transition-colors hover:bg-white/5 hover:text-white text-white/50 h-8 px-3"
           >
             Docs
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-white/50 hover:text-white hover:bg-white/5 text-xs h-8"
+          </a>
+          <a
+            href="http://localhost:8000/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center rounded-md text-xs font-medium transition-colors hover:bg-white/5 hover:text-white text-white/50 h-8 px-3"
           >
             API
-          </Button>
+          </a>
+          <button
+            onClick={logout}
+            className="inline-flex items-center justify-center rounded-md text-xs font-medium transition-colors hover:bg-red-500/10 hover:text-red-400 text-white/50 h-8 px-3 gap-1.5"
+          >
+            <LogOut className="h-3 w-3" />
+            Sign Out
+          </button>
         </nav>
 
         <div className="w-px h-4 bg-white/10" />
@@ -71,9 +80,9 @@ export function Header() {
               <User className="h-4 w-4" />
               {user?.username}
             </DropdownMenuItem>
-            <DropdownMenuItem className="gap-2 text-sm text-white/60 hover:text-white hover:bg-white/5 focus:bg-white/5 focus:text-white cursor-pointer">
+            <DropdownMenuItem disabled className="gap-2 text-sm text-white/40 cursor-not-allowed">
               <Settings className="h-4 w-4" />
-              Settings
+              Settings (Coming soon)
             </DropdownMenuItem>
             <DropdownMenuSeparator className="bg-white/8" />
             <DropdownMenuItem

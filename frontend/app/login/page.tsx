@@ -42,8 +42,8 @@ export default function LoginPage() {
 
         {/* Logo */}
         <div className="relative flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <Code2 className="h-5 w-5 text-white" />
+          <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center shadow-lg shadow-blue-500/20 bg-black">
+            <img src="/logo.png" alt="CodeChat Logo" className="w-full h-full object-cover" />
           </div>
           <span className="text-lg font-semibold tracking-tight">CodeChat</span>
         </div>
@@ -88,8 +88,8 @@ export default function LoginPage() {
         <div className="relative w-full max-w-md">
           {/* Mobile logo */}
           <div className="flex items-center justify-center gap-2.5 mb-10 lg:hidden">
-            <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center">
-              <Code2 className="h-5 w-5 text-white" />
+            <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center bg-black">
+              <img src="/logo.png" alt="CodeChat Logo" className="w-full h-full object-cover" />
             </div>
             <span className="text-lg font-semibold">CodeChat</span>
           </div>

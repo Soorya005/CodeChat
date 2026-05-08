@@ -49,10 +49,9 @@ export function GitHubInput({ onSubmit, isLoading, status, currentRepo }: GitHub
           </div>
           <Button type="submit" disabled={isLoading || !url.trim()} size="sm" className="h-9 w-9 p-0 bg-white/10 text-white hover:bg-white/20 rounded-md border border-white/5">
             {isLoading ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Loading...
-              </>
+              <div className="flex items-center justify-center w-full h-full">
+                <Loader2 className="h-4 w-4 animate-spin" />
+              </div>
             ) : (
               <div className="flex items-center justify-center w-full h-full"><Link className="h-4 w-4" /></div>
             )}

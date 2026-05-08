@@ -399,10 +399,10 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen bg-background grid grid-rows-[48px_1fr]">
       <Header />
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex min-h-0 overflow-hidden relative">
         {/* Sidebar Toggle (mobile) */}
         <Button
           variant="ghost"
@@ -489,7 +489,7 @@ export default function Home() {
         <Button
           variant="ghost"
           size="icon"
-          className="hidden md:flex absolute left-2 top-14 z-10 h-8 w-8"
+          className="hidden md:flex absolute left-2 bottom-4 z-10 h-8 w-8 bg-black/40 hover:bg-white/10 backdrop-blur-md rounded-full border border-white/10 shadow-lg"
           onClick={() => setSidebarOpen(!sidebarOpen)}
         >
           {sidebarOpen ? (
