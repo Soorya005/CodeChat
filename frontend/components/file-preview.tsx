@@ -2,12 +2,40 @@
 
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { FileCode2 } from "lucide-react"
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter"
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism"
 
 interface FilePreviewProps {
   filePath: string | null
   content: string
   isLoading: boolean
   truncated?: boolean
+}
+
+const getLanguage = (fileName: string | null) => {
+  if (!fileName) return "text"
+  const ext = fileName.split('.').pop()?.toLowerCase()
+  switch (ext) {
+    case 'js':
+    case 'jsx': return 'javascript'
+    case 'ts':
+    case 'tsx': return 'typescript'
+    case 'py': return 'python'
+    case 'html': return 'html'
+    case 'css': return 'css'
+    case 'json': return 'json'
+    case 'md': return 'markdown'
+    case 'sh': return 'bash'
+    case 'yml':
+    case 'yaml': return 'yaml'
+    case 'go': return 'go'
+    case 'rs': return 'rust'
+    case 'java': return 'java'
+    case 'c':
+    case 'cpp':
+    case 'h': return 'cpp'
+    default: return 'text'
+  }
 }
 
 export function FilePreview({ filePath, content, isLoading, truncated = false }: FilePreviewProps) {
@@ -28,9 +56,21 @@ export function FilePreview({ filePath, content, isLoading, truncated = false }:
               {truncated && (
                 <div className="text-xs text-muted-foreground mb-2">Preview truncated for large file.</div>
               )}
-              <pre className="text-xs leading-5 whitespace-pre-wrap break-words font-mono text-foreground">
+              <SyntaxHighlighter
+                language={getLanguage(filePath)}
+                style={vscDarkPlus}
+                customStyle={{
+                  margin: 0,
+                  padding: 0,
+                  background: "transparent",
+                  fontSize: "12px",
+                  lineHeight: "20px",
+                }}
+                wrapLines={true}
+                wrapLongLines={true}
+              >
                 {content}
-              </pre>
+              </SyntaxHighlighter>
             </>
           )}
         </div>
