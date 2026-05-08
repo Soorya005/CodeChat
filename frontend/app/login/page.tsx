@@ -60,7 +60,7 @@ export default function LoginPage() {
 
           {/* Feature pills */}
           <div className="flex flex-wrap gap-2">
-            {["RAG-powered", "Local LLM", "GitHub sync", "Semantic search"].map((pill) => (
+            {["RAG-powered", "Groq Cloud", "GitHub sync", "Semantic search"].map((pill) => (
               <span
                 key={pill}
                 className="px-3 py-1 rounded-full border border-white/10 bg-white/5 text-xs text-white/50"

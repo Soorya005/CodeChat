@@ -44,17 +44,10 @@ except Exception:
     groq_module = None
     GROQ_AVAILABLE = False
 
-try:
-    google_genai = importlib.import_module("google.genai")
-    GOOGLE_GENAI_AVAILABLE = True
-except Exception:
-    google_genai = None
-    GOOGLE_GENAI_AVAILABLE = False
 
-import requests
-REQUESTS_AVAILABLE = True
 
-# Gemini quota / rate-limit error substrings (checked case-insensitively)
+
+
 _GEMINI_QUOTA_ERRORS = (
     "resource_exhausted",
     "quota exceeded",
@@ -83,22 +76,15 @@ class RAGConfig:
     similarity_threshold: float = 0.0
 
     # LLM
-    llm_provider: str = "ollama"          # "ollama", "anthropic", "openai"
-    llm_model: str = "qwen2.5-coder:1.5b-instruct-q4_K_M"
+    llm_provider: str = "groq"          # "groq", "anthropic", "openai"
+    llm_model: str = "llama-3.1-8b-instant"
     llm_temperature: float = 0.0
     llm_max_tokens: int = 1200
-
-    # Ollama
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_request_timeout: int = 240
 
     # API keys (loaded from env vars automatically)
     anthropic_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
-    gemini_api_key: Optional[str] = None
-    gemini_model: str = "gemini-2.0-flash"
     groq_api_key: Optional[str] = None
-    groq_model: str = "llama-3.1-8b-instant"
 
     def __post_init__(self):
         llm_provider = os.getenv("LLM_PROVIDER") or os.getenv("RAG_LLM_PROVIDER")
@@ -109,43 +95,30 @@ class RAGConfig:
             self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
         if not self.openai_api_key:
             self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not self.gemini_api_key:
-            self.gemini_api_key = os.getenv("GEMINI_API_KEY")
         if not self.groq_api_key:
             self.groq_api_key = os.getenv("GROQ_API_KEY")
 
-        gemini_model_env = os.getenv("GEMINI_MODEL")
-        if gemini_model_env:
-            self.gemini_model = gemini_model_env
         groq_model_env = os.getenv("GROQ_MODEL")
         if groq_model_env:
-            self.groq_model = groq_model_env
-
-        llm_model = os.getenv("OLLAMA_MODEL") or os.getenv("LLM_MODEL")
-        if llm_model:
-            self.llm_model = llm_model
+            self.llm_model = groq_model_env
+        else:
+            llm_model = os.getenv("LLM_MODEL")
+            if llm_model:
+                self.llm_model = llm_model
 
         llm_temperature = os.getenv("LLM_TEMPERATURE")
         if llm_temperature:
             try:
                 self.llm_temperature = float(llm_temperature)
             except ValueError:
-                logger.warning(
-                    "[RAG Config] Invalid LLM_TEMPERATURE='%s'; using default %.2f",
-                    llm_temperature,
-                    self.llm_temperature,
-                )
+                pass
 
         llm_max_tokens = os.getenv("LLM_MAX_TOKENS")
         if llm_max_tokens:
             try:
                 self.llm_max_tokens = int(llm_max_tokens)
             except ValueError:
-                logger.warning(
-                    "[RAG Config] Invalid LLM_MAX_TOKENS='%s'; using default %d",
-                    llm_max_tokens,
-                    self.llm_max_tokens,
-                )
+                pass
 
         rag_top_k = os.getenv("RAG_TOP_K")
         if rag_top_k:
@@ -154,25 +127,7 @@ class RAGConfig:
                 if parsed_top_k > 0:
                     self.top_k = parsed_top_k
             except ValueError:
-                logger.warning(
-                    "[RAG Config] Invalid RAG_TOP_K='%s'; using default %d",
-                    rag_top_k,
-                    self.top_k,
-                )
-
-        ollama_url = os.getenv("OLLAMA_BASE_URL")
-        if ollama_url:
-            self.ollama_base_url = ollama_url
-        ollama_timeout = os.getenv("OLLAMA_REQUEST_TIMEOUT")
-        if ollama_timeout:
-            try:
-                self.ollama_request_timeout = int(ollama_timeout)
-            except ValueError:
-                logger.warning(
-                    "[RAG Config] Invalid OLLAMA_REQUEST_TIMEOUT='%s'; using default %s",
-                    ollama_timeout,
-                    self.ollama_request_timeout,
-                )
+                pass
 
 
 @dataclass
@@ -196,24 +151,14 @@ class RAGResponse:
 # ─── LLM Client ─────────────────────────────────────────────────
 
 class LLMClient:
-    """Unified interface for Ollama, Anthropic, OpenAI, Gemini, and Groq."""
+    """Unified interface for Groq, Anthropic, and OpenAI."""
 
     def __init__(self, config: RAGConfig):
         self.config = config
         self.provider = config.llm_provider
-        self.client: Any = None
-        self._gemini_client: Any = None
-        self._groq_client: Any = None
+        self.client = None
 
-        if self.provider == "ollama":
-            if not REQUESTS_AVAILABLE:
-                raise RuntimeError(
-                    "requests library required for Ollama. Install: pip install requests"
-                )
-            self.base_url = config.ollama_base_url
-            self._check_ollama_connection()
-
-        elif self.provider == "anthropic":
+        if self.provider == "anthropic":
             if not ANTHROPIC_AVAILABLE:
                 raise RuntimeError("anthropic library required. Install: pip install anthropic")
             if not config.anthropic_api_key:
@@ -227,15 +172,6 @@ class LLMClient:
                 raise ValueError("OPENAI_API_KEY is not set.")
             self.client = openai.OpenAI(api_key=config.openai_api_key)
 
-        elif self.provider == "gemini":
-            if not config.gemini_api_key:
-                raise ValueError("GEMINI_API_KEY is not set.")
-            from app.rag.gemini_client import GeminiClient
-            self.client = GeminiClient(
-                api_key=config.gemini_api_key,
-                model_name=config.gemini_model,
-            )
-
         elif self.provider == "groq":
             if not GROQ_AVAILABLE:
                 raise RuntimeError("groq library required. Install: pip install groq")
@@ -246,109 +182,13 @@ class LLMClient:
         else:
             raise ValueError(
                 f"Unknown LLM provider: '{self.provider}'. "
-                "Choose 'ollama', 'anthropic', 'openai', 'gemini', or 'groq'."
+                "Choose 'groq', 'anthropic', or 'openai'."
             )
-
-        # Pre-warm optional fallback clients if keys are available.
-        # This way fallbacks are ready without extra initialisation cost at query time.
-        self._init_fallback_clients()
-
-    def _init_fallback_clients(self):
-        """Pre-initialise Gemini and Groq clients for use as fallbacks."""
-        if self._gemini_client is None and GOOGLE_GENAI_AVAILABLE and self.config.gemini_api_key:
-            try:
-                self._gemini_client = google_genai.Client(api_key=self.config.gemini_api_key)
-                logger.info("[LLM] Gemini fallback client ready (model=%s)", self.config.gemini_model)
-            except Exception as exc:
-                logger.warning("[LLM] Could not init Gemini fallback client: %s", exc)
-
-        if self._groq_client is None and GROQ_AVAILABLE and self.config.groq_api_key:
-            try:
-                self._groq_client = groq_module.Groq(api_key=self.config.groq_api_key)
-                logger.info("[LLM] Groq fallback client ready (model=%s)", self.config.groq_model)
-            except Exception as exc:
-                logger.warning("[LLM] Could not init Groq fallback client: %s", exc)
-
-    def _check_ollama_connection(self):
-        """Verify Ollama is reachable and log available models."""
-        try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
-            if response.status_code == 200:
-                available_models = [
-                    m["name"] for m in response.json().get("models", [])
-                ]
-                logger.info(
-                    "[LLM] Connected to Ollama. Available models: %s", available_models
-                )
-                resolved_model = self._resolve_ollama_model_name(available_models)
-                if resolved_model != self.config.llm_model:
-                    logger.info(
-                        "[LLM] Using resolved Ollama model '%s' for requested '%s'",
-                        resolved_model,
-                        self.config.llm_model,
-                    )
-                self.config.llm_model = resolved_model
-            else:
-                logger.warning(
-                    "[LLM] Could not list Ollama models (HTTP %d)", response.status_code
-                )
-        except requests.exceptions.RequestException as exc:
-            logger.warning(
-                "[LLM] Could not connect to Ollama at %s: %s. "
-                "Make sure Ollama is running: ollama serve",
-                self.base_url, exc,
-            )
-
-    def _resolve_ollama_model_name(self, available_models: List[str]) -> str:
-        """Resolve configured model name to an available Ollama tag if needed."""
-        requested = self.config.llm_model
-        if not available_models:
-            return requested
-
-        if requested in available_models:
-            return requested
-
-        requested_base = requested.split(":", 1)[0]
-        for model_name in available_models:
-            if model_name.split(":", 1)[0] == requested_base:
-                logger.warning(
-                    "[LLM] Requested model '%s' not found; using '%s'",
-                    requested,
-                    model_name,
-                )
-                return model_name
-
-        logger.warning(
-            "[LLM] Model '%s' not in available Ollama models: %s",
-            requested,
-            available_models,
-        )
-        return requested
 
     def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
         """
-        Generate a response from the configured LLM with automatic fallback.
-
-        Fallback order when primary provider fails:
-          ollama  → gemini → groq
-          gemini  → groq
-          groq    → (no further fallback)
-          others  → gemini → groq
+        Generate a response from the configured LLM.
         """
-        try:
-            return self._generate_primary(prompt, system_prompt)
-        except Exception as primary_exc:
-            logger.warning(
-                "[LLM] Primary provider '%s' failed: %s — trying fallbacks.",
-                self.provider, primary_exc,
-            )
-            return self._generate_with_fallbacks(prompt, system_prompt, primary_exc)
-
-    def _generate_primary(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """Call the configured primary provider (no fallback)."""
-        if self.provider == "ollama":
-            return self._generate_ollama(prompt, system_prompt)
-
         if self.provider == "anthropic":
             kwargs = {
                 "model": self.config.llm_model,
@@ -374,177 +214,21 @@ class LLMClient:
             )
             return response.choices[0].message.content
 
-        if self.provider == "gemini":
-            return self._generate_gemini(prompt, system_prompt)
-
         if self.provider == "groq":
-            return self._generate_groq(prompt, system_prompt)
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+            completion = self.client.chat.completions.create(
+                model=self.config.llm_model,
+                messages=messages,
+                temperature=self.config.llm_temperature,
+                max_tokens=self.config.llm_max_tokens,
+            )
+            return completion.choices[0].message.content
 
         return ""
 
-    def _generate_with_fallbacks(
-        self,
-        prompt: str,
-        system_prompt: Optional[str],
-        primary_exc: Exception,
-    ) -> str:
-        """Try Gemini then Groq as automatic fallbacks."""
-        # ── Gemini fallback ──────────────────────────────────────
-        if self.provider != "gemini" and self._gemini_client is not None:
-            try:
-                answer = self._generate_gemini(prompt, system_prompt)
-                logger.info("[LLM] Answered via Gemini fallback (model=%s).", self.config.gemini_model)
-                return answer
-            except Exception as gemini_exc:
-                exc_lower = str(gemini_exc).lower()
-                if any(kw in exc_lower for kw in _GEMINI_QUOTA_ERRORS):
-                    logger.warning(
-                        "[LLM] Gemini quota/rate-limit hit: %s — falling through to Groq.",
-                        gemini_exc,
-                    )
-                else:
-                    logger.warning("[LLM] Gemini fallback failed: %s — trying Groq.", gemini_exc)
-
-        # ── Groq fallback ────────────────────────────────────────
-        if self.provider != "groq" and self._groq_client is not None:
-            try:
-                answer = self._generate_groq(prompt, system_prompt)
-                logger.info("[LLM] Answered via Groq fallback (model=%s).", self.config.groq_model)
-                return answer
-            except Exception as groq_exc:
-                logger.warning("[LLM] Groq fallback also failed: %s.", groq_exc)
-
-        # ── All fallbacks exhausted ──────────────────────────────
-        raise RuntimeError(
-            f"All LLM providers failed. Primary ({self.provider}): {primary_exc}"
-        )
-
-    def _generate_gemini(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """Call the Gemini API.
-
-        Works with two different client styles:
-        - Primary provider: self.client is a GeminiClient (wrapper from gemini_client.py).
-        - Fallback:         self._gemini_client is a raw google.genai Client.
-        """
-        # Primary provider path (GeminiClient wrapper)
-        if self.provider == "gemini" and self.client is not None:
-            return self.client.generate(prompt, system_prompt)
-
-        # Fallback path (raw google-genai client)
-        if self._gemini_client is not None:
-            full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-            response = self._gemini_client.models.generate_content(
-                model=self.config.gemini_model,
-                contents=full_prompt
-            )
-            return response.text
-
-        raise RuntimeError("Gemini client is not initialised.")
-
-    def _generate_groq(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """Call the Groq API (OpenAI-compatible).
-
-        Works with two client sources:
-        - Primary provider: self.client is the Groq() instance.
-        - Fallback:         self._groq_client is the pre-warmed Groq() instance.
-        """
-        groq_client = self.client if (self.provider == "groq" and self.client is not None) else self._groq_client
-        if groq_client is None:
-            raise RuntimeError("Groq client is not initialised.")
-        messages: List[Dict] = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        completion = groq_client.chat.completions.create(
-            model=self.config.groq_model,
-            messages=messages,
-            temperature=self.config.llm_temperature,
-            max_tokens=self.config.llm_max_tokens,
-        )
-        return completion.choices[0].message.content
-
-    def _generate_ollama(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """Send a request to Ollama (supports /api/generate and /api/chat)."""
-        full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-
-        max_predict = max(128, min(self.config.llm_max_tokens, 4096))
-        # Keep the non-streaming request budget tight to avoid 5+ minute stalls.
-        connect_timeout = 10
-        base_timeout = min(max(self.config.ollama_request_timeout, 15), 45)
-        retry_timeout = min(max(base_timeout + 15, 30), 60)
-        attempts = [
-            (base_timeout, max_predict),
-            (retry_timeout, min(max_predict, 1024)),
-        ]
-
-        last_error: Optional[Exception] = None
-
-        for attempt_idx, (timeout_seconds, num_predict) in enumerate(attempts, start=1):
-            try:
-                # Try native Ollama generate API first.
-                generate_payload = {
-                    "model": self.config.llm_model,
-                    "prompt": full_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": self.config.llm_temperature,
-                        "num_predict": num_predict,
-                    },
-                }
-                generate_response = requests.post(
-                    f"{self.base_url}/api/generate",
-                    json=generate_payload,
-                    timeout=(connect_timeout, timeout_seconds),
-                )
-                if generate_response.status_code == 404:
-                    # Some deployments expose chat-style endpoint instead.
-                    chat_payload = {
-                        "model": self.config.llm_model,
-                        "stream": False,
-                        "messages": [{"role": "user", "content": full_prompt}],
-                        "options": {
-                            "temperature": self.config.llm_temperature,
-                            "num_predict": num_predict,
-                        },
-                    }
-                    chat_response = requests.post(
-                        f"{self.base_url}/api/chat",
-                        json=chat_payload,
-                        timeout=(connect_timeout, timeout_seconds),
-                    )
-                    chat_response.raise_for_status()
-                    chat_body = chat_response.json()
-                    message = chat_body.get("message") or {}
-                    content = message.get("content") if isinstance(message, dict) else None
-                    if content:
-                        return content
-                    return chat_body.get("response", "")
-
-                generate_response.raise_for_status()
-                return generate_response.json().get("response", "")
-            except (requests.exceptions.Timeout, requests.exceptions.RequestException) as exc:
-                last_error = exc
-                if attempt_idx < len(attempts):
-                    logger.warning(
-                        "[LLM] Ollama attempt %d/%d failed (%s). Retrying with timeout=%ds num_predict=%d",
-                        attempt_idx,
-                        len(attempts),
-                        exc,
-                        attempts[attempt_idx][0],
-                        attempts[attempt_idx][1],
-                    )
-                    continue
-                break
-
-        if isinstance(last_error, requests.exceptions.Timeout):
-            raise RuntimeError(
-                f"Ollama request timed out after retries. Model '{self.config.llm_model}' "
-                f"may be slow or unavailable (read_timeout={retry_timeout}s)."
-            )
-        raise RuntimeError(f"Ollama API error after retries: {last_error}")
-
-
-# ─── Prompt Builder (internal) ────────────────────────────────────
 
 class PromptBuilder:
     """Builds system and user prompts for the RAG pipeline."""
@@ -564,7 +248,7 @@ class PromptBuilder:
     @staticmethod
     def build_user_prompt(query: str, context_chunks: List[Tuple]) -> str:
         """Delegate to prompt_builder module for consistent formatting."""
-        from app.rag.prompt_builder import is_repo_summary_query
+        from app.rag.prompt_builder import is_repo_summary_query, build_prompt
 
         if is_repo_summary_query(query):
             return build_prompt(
@@ -581,8 +265,6 @@ class PromptBuilder:
             max_chunk_chars=1400,
         )
 
-
-# ─── RAG Pipeline ────────────────────────────────────────────────
 
 class RAGPipeline:
     """

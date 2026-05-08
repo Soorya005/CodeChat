@@ -30,14 +30,13 @@ uvicorn app.main:app --reload
 
 Backend runs at: `http://127.0.0.1:8000`
 
-## 4) Ollama setup
+## 4) Groq API Key
 
-In a separate terminal:
+CodeChat uses Groq to provide instant, high-speed LLM responses. You must set a `GROQ_API_KEY` in your `.env` file before running the backend.
+Get your free API key at [console.groq.com](https://console.groq.com).
 
-```bash
-ollama serve
-ollama pull qwen2.5-coder:1.5b-instruct-q4_K_M
-```
+> **Migration Note for Existing Users:**
+> CodeChat is now exclusively powered by Groq. Ollama and Gemini fallback support have been removed. If you are updating from a previous version, please ensure your `.env` file is updated to remove `OLLAMA_*` and `GEMINI_*` variables, and ensure `GROQ_API_KEY` is set.
 
 ## 5) Frontend setup
 

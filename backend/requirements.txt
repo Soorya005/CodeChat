@@ -14,5 +14,4 @@ tree-sitter
 tree-sitter-languages
 requests
 gitpython
-google-genai
 groq
