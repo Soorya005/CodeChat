@@ -11,7 +11,7 @@ import { FilePreview } from "@/components/file-preview"
 import { RepositoryTree } from "@/components/repository-tree"
 import { QueryInput } from "@/components/query-input"
 import { Button } from "@/components/ui/button"
-import { PanelLeftClose, PanelLeft } from "lucide-react"
+import { PanelLeftClose, PanelLeft, Webhook, Copy, Check, X } from "lucide-react"
 import {
   apiAddRepository,
   apiGetRepositoryFileContent,
@@ -49,6 +49,9 @@ export default function Home() {
   const [isLoadingFileContent, setIsLoadingFileContent] = useState(false)
   const [isFileContentTruncated, setIsFileContentTruncated] = useState(false)
   const [isLoadingMessage, setIsLoadingMessage] = useState(false)
+  const [syncApiKey, setSyncApiKey] = useState<string | null>(null)
+  const [showSyncModal, setShowSyncModal] = useState(false)
+  const [copiedField, setCopiedField] = useState<string | null>(null)
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
@@ -206,6 +209,7 @@ export default function Home() {
       // Step 1: Register the repo in the database
       const addResult = await apiAddRepository(token, url)
       const repoId = addResult.repository_id
+      setSyncApiKey(addResult.sync_api_key ?? null)
 
       // Step 2: Start async indexing
       await apiIndexRepository(token, repoId)
@@ -438,6 +442,15 @@ export default function Home() {
                 status={repoStatus}
                 currentRepo={currentRepo}
               />
+              {repoStatus === "success" && currentRepoId !== null && syncApiKey && (
+                <button
+                  onClick={() => setShowSyncModal(true)}
+                  className="mt-2 w-full flex items-center gap-2 px-3 py-2 rounded-md text-xs font-medium bg-violet-600/10 hover:bg-violet-600/20 text-violet-400 border border-violet-600/30 transition-colors"
+                >
+                  <Webhook className="h-3.5 w-3.5" />
+                  CI/CD Webhook Setup
+                </button>
+              )}
             </div>
             <div className="flex-1 overflow-hidden">
               <RepositoryTree
@@ -486,6 +499,72 @@ export default function Home() {
           )}
         </Button>
       </div>
+
+      {/* CI/CD Webhook Setup Modal */}
+      {showSyncModal && currentRepoId !== null && syncApiKey && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-md mx-4 p-6">
+            <button
+              onClick={() => setShowSyncModal(false)}
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors"
+            >
+              <X className="h-4 w-4" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-violet-600/20 rounded-lg">
+                <Webhook className="h-5 w-5 text-violet-400" />
+              </div>
+              <div>
+                <h2 className="text-white font-semibold text-sm">CI/CD Auto-Sync Setup</h2>
+                <p className="text-zinc-400 text-xs">Add these 3 secrets to your GitHub repository</p>
+              </div>
+            </div>
+
+            <p className="text-zinc-400 text-xs mb-4">
+              Go to your target repository on GitHub → <span className="text-zinc-200">Settings → Secrets and variables → Actions</span> → New repository secret
+            </p>
+
+            {[
+              { name: "CODECHAT_BACKEND_URL", value: "Your ngrok HTTPS URL (e.g. https://xxxx.ngrok-free.app)", copyable: false },
+              { name: "CODECHAT_REPO_ID", value: String(currentRepoId), copyable: true },
+              { name: "CODECHAT_API_KEY", value: syncApiKey, copyable: true },
+            ].map(({ name, value, copyable }) => (
+              <div key={name} className="mb-3">
+                <p className="text-xs text-zinc-400 mb-1 font-mono">{name}</p>
+                <div className="flex items-center gap-2 bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2">
+                  <span className="flex-1 text-xs font-mono text-zinc-200 truncate">{value}</span>
+                  {copyable && (
+                    <button
+                      onClick={() => {
+                        navigator.clipboard.writeText(value)
+                        setCopiedField(name)
+                        setTimeout(() => setCopiedField(null), 2000)
+                      }}
+                      className="text-zinc-400 hover:text-violet-400 transition-colors flex-shrink-0"
+                    >
+                      {copiedField === name ? <Check className="h-3.5 w-3.5 text-green-400" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-md">
+              <p className="text-amber-400 text-xs">
+                ⚠️ <strong>Important:</strong> The ngrok URL changes every time you restart ngrok (unless on a paid plan). Update <code className="bg-zinc-800 px-1 rounded">CODECHAT_BACKEND_URL</code> in GitHub Secrets after every ngrok restart.
+              </p>
+            </div>
+
+            <button
+              onClick={() => setShowSyncModal(false)}
+              className="mt-4 w-full py-2 text-xs font-medium bg-violet-600 hover:bg-violet-700 text-white rounded-md transition-colors"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

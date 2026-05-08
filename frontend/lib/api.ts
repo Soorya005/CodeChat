@@ -69,7 +69,7 @@ export async function apiLogin(
 export async function apiAddRepository(
   token: string,
   repo_url: string
-): Promise<{ repository_id: number; repo_url: string; status: string }> {
+): Promise<{ repository_id: number; repo_url: string; status: string; sync_api_key: string }> {
   const res = await fetch(
     `${BASE_URL}/repository/add?repo_url=${encodeURIComponent(repo_url)}`,
     { method: "POST", headers: authHeaders(token) }
