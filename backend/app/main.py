@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Header
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import json
@@ -605,22 +605,87 @@ def index_repository_endpoint(
 
     return {"message": "Indexing started"}
 
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+def background_sync_index(repo_url: str, save_path: str, repo_id: int):
+    logger.info(f"Starting background_sync_index for repo {repo_id}")
+    db: Session = SessionLocal()
+    temp_dir: str | None = None
+    temp_save_path = save_path + "_temp"
+    old_save_path = save_path + "_old"
+    
+    try:
+        temp_dir = clone_repository(repo_url)
+        rag_pipeline = RAGPipeline(RAGConfig())
+        rag_pipeline.index_repository(temp_dir, save_path=temp_save_path)
+        _save_snapshot_and_tree(temp_dir, temp_save_path)
+
+        # Atomic Swap
+        if os.path.exists(save_path):
+            os.rename(save_path, old_save_path)
+        
+        try:
+            os.rename(temp_save_path, save_path)
+        except Exception as swap_exc:
+            logger.error(f"Failed to move temp index to active path for repo {repo_id}. Recovering from _old.")
+            if os.path.exists(old_save_path):
+                os.rename(old_save_path, save_path)
+            raise swap_exc
+            
+        if os.path.exists(old_save_path):
+            shutil.rmtree(old_save_path, ignore_errors=True)
+            
+        repo = db.query(Repository).filter(Repository.id == repo_id).first()
+        if repo:
+            repo.status = RepoStatus.INDEXED
+            repo.faiss_index_path = save_path
+            db.commit()
+            
+        invalidate_pipeline(save_path)
+        logger.info(f"Successfully completed atomic swap and re-indexing for repo {repo_id}")
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        repo = db.query(Repository).filter(Repository.id == repo_id).first()
+        if repo:
+            repo.status = RepoStatus.FAILED
+            db.commit()
+        logger.error(f"Background sync failed for repo {repo_id}: {e}")
+    finally:
+        if temp_dir and os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
+        if os.path.exists(temp_save_path):
+            shutil.rmtree(temp_save_path, ignore_errors=True)
+        db.close()
+
+
 @app.post("/repository/sync/{repo_id}")
 def sync_repository(
     repo_id: int,
-    api_key: str,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    authorization: str = Header(None)
 ):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    
+    api_key = authorization.split(" ")[1]
+    
     repo = db.query(Repository).filter(Repository.id == repo_id).first()
 
     if not repo:
         raise HTTPException(status_code=404, detail="Repository not found")
 
     if not repo.sync_api_key or repo.sync_api_key != api_key:
-        raise HTTPException(status_code=401, detail="Unauthorized API key")
+        raise HTTPException(status_code=403, detail="Invalid token")
 
-    invalidate_pipeline(repo.faiss_index_path)
+    if repo.status == RepoStatus.INDEXING:
+        raise HTTPException(status_code=409, detail="Indexing already in progress")
 
     # mark indexing
     repo.status = RepoStatus.INDEXING
@@ -629,6 +694,7 @@ def sync_repository(
     index_path = os.path.abspath(f"indexes/repo_{repo_id}")
     os.makedirs("indexes", exist_ok=True)
 
-    background_tasks.add_task(background_index, repo.repo_url, index_path, repo_id)
+    logger.info(f"Sync request received for repo {repo_id}. Queuing background_sync_index.")
+    background_tasks.add_task(background_sync_index, repo.repo_url, index_path, repo_id)
 
-    return {"message": "Repository sync and indexing started"}
+    return {"status": "queued", "message": "Repository re-indexing started"}
