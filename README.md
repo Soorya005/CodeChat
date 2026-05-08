@@ -1,6 +1,7 @@
 # CodeChat (Backend + Frontend)
 
 Clone and run locally with minimal setup.
+Can use api key for access cloud llms too
 
 ## 1) Prerequisites
 
