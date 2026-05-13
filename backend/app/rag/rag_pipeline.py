@@ -1157,7 +1157,7 @@ def main():
         if not args.index_path:
             parser.error("--index-path required for 'load' command")
         pipeline.load_index(args.index_path)
-        print("✅ Index loaded successfully!")
+        print(" Index loaded successfully!")
 
     elif args.command == "query":
         if not args.index_path:
@@ -1166,8 +1166,8 @@ def main():
             parser.error("--query required for 'query' command")
         pipeline.load_index(args.index_path)
         response = pipeline.query(args.query)
-        print(f"\n🤖 Answer:\n{response.answer}")
-        print("\n📚 Sources:")
+        print(f"\n Answer:\n{response.answer}")
+        print("\n Sources:")
         for i, (meta, score) in enumerate(response.retrieved_chunks, 1):
             print(f"   {i}. {meta.symbol_name} – {meta.file_path}:{meta.start_line}")
 

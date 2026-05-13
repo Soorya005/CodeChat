@@ -14,5 +14,4 @@ tree-sitter==0.21.3
 tree-sitter-languages==1.10.2
 requests
 gitpython
-groqrank-bm25==0.2.2
 rank-bm25==0.2.2
