@@ -1,22 +1,23 @@
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks, Header
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
 import json
+import logging
 import os
 import shutil
-from pydantic import BaseModel
 from threading import Lock
 from typing import Any, Dict, List
+
 from dotenv import load_dotenv
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 import app.models
 
-from app.dependencies.auth_dependency import get_db, get_current_user
-
 from app.models.user import User
 from app.models.repository import Repository, RepoStatus
-
+from app.dependencies.auth_dependency import get_db, get_current_user
 from app.services.auth_service import (
     hash_password,
     verify_password,
@@ -33,7 +34,7 @@ from app.services.chat_service import (
     get_user_chats,
     get_repository_chats
 )
-
+from app.services.index_registry_service import get_index_path
 from app.rag.rag_pipeline import RAGPipeline, RAGConfig
 from app.rag.ingestion import clone_repository
 from app.database.database import SessionLocal
@@ -224,6 +225,7 @@ def _build_tree_nodes(relative_paths: List[str]) -> List[Dict[str, Any]]:
 
     return convert(tree)
 
+
 def _get_common_prefix_for_repo(rag_pipeline: RAGPipeline) -> str:
     if not rag_pipeline.vector_store or not getattr(rag_pipeline.vector_store, "metadata", None):
         return ""
@@ -268,6 +270,15 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
 
+
+class RepositoryListItem(BaseModel):
+    id: int
+    repo_url: str
+    status: RepoStatus
+    created_at: Any
+    updated_at: Any
+
+
 @app.post("/register")
 def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
@@ -296,8 +307,6 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
 # -----------------------------
 # User Login
 # -----------------------------
-from fastapi.security import OAuth2PasswordRequestForm
-
 @app.post("/login")
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -327,7 +336,7 @@ def login(
 def add_repository(
     repo_url: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
 
     repo = create_repository(
@@ -347,10 +356,10 @@ def add_repository(
 # -----------------------------
 # List User Repositories
 # -----------------------------
-@app.get("/repository/list")
+@app.get("/repository/list", response_model=List[RepositoryListItem])
 def list_repositories(
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
 
     repos = db.query(Repository).filter(
@@ -367,7 +376,7 @@ def list_repositories(
 def get_repository_status(
     repo_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
 
     repo = db.query(Repository).filter(
@@ -392,7 +401,7 @@ def get_repository_status(
 def get_repository_tree(
     repo_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
     repo = get_repository_if_indexed(db, repo_id, current_user.id)
 
@@ -423,7 +432,7 @@ def get_repository_file_content(
     repo_id: int,
     file_path: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     repo = get_repository_if_indexed(db, repo_id, current_user.id)
 
@@ -471,10 +480,10 @@ def update_repo_status(
     repo_id: int,
     status: RepoStatus,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
 
-    repo = update_repository_status(db, repo_id, status)
+    repo = update_repository_status(db, repo_id, current_user.id, status)
 
     if not repo:
         raise HTTPException(
@@ -483,13 +492,15 @@ def update_repo_status(
         )
 
     return {"message": "Repository status updated"}
+
+
 @app.post("/chat/save")
 def store_chat(
     repository_url: str,
     query_text: str,
     response_text: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
 
     chat = save_chat(
@@ -501,20 +512,24 @@ def store_chat(
     )
 
     return {"message": "Chat saved", "chat_id": chat.id}
+
+
 @app.get("/chat/history")
 def get_chat_history(
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
 
     chats = get_user_chats(db, current_user.id)
 
     return chats
+
+
 @app.get("/chat/repository")
 def get_repo_chat_history(
     repository_url: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
 
     chats = get_repository_chats(
@@ -524,16 +539,16 @@ def get_repo_chat_history(
     )
 
     return chats
-from app.services.index_registry_service import get_index_path
+
 
 @app.get("/repository/index-path/{repo_id}")
 def fetch_index_path(
     repo_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
 
-    path = get_index_path(db, repo_id)
+    path = get_index_path(db, repo_id, current_user.id)
 
     return {"index_path": path}
 
@@ -542,7 +557,7 @@ def query_repository(
     repo_id: int,
     query: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
     
     # Check repository belongs to user and is indexed
@@ -562,13 +577,11 @@ def query_repository(
         response_text=response.answer
     )
 
-    common_prefix = _get_common_prefix_for_repo(rag_pipeline)
-
     return {
         "answer": response.answer,
         "sources": [
             {
-                "file": _format_source_path(meta.file_path, common_prefix),
+                "file": meta.file_path.replace("\\", "/"),
                 "symbol": meta.symbol_name,
                 "line": meta.start_line
             }
@@ -581,7 +594,7 @@ def stream_query(
     repo_id: int,
     query: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user)
 ):
     repo = get_repository_if_indexed(db, repo_id, current_user.id)
     rag_pipeline = get_or_create_pipeline(repo.faiss_index_path)
@@ -603,11 +616,9 @@ def stream_query(
             response_text=answer
         )
         
-        common_prefix = _get_common_prefix_for_repo(rag_pipeline)
-        
         final_sources = [
             {
-                "file": _format_source_path(meta.file_path, common_prefix),
+                "file": meta.file_path.replace("\\", "/"),
                 "symbol": meta.symbol_name,
                 "line": meta.start_line
             }
@@ -617,6 +628,8 @@ def stream_query(
         yield json.dumps({"done": True, "answer": answer, "sources": final_sources}) + "\n"
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
+
 def background_index(repo_url: str, save_path: str, repo_id: int):
     db: Session = SessionLocal()
     temp_dir: str | None = None
@@ -674,9 +687,6 @@ def index_repository_endpoint(
     background_tasks.add_task(background_index, repo.repo_url, index_path, repo_id)
 
     return {"message": "Indexing started"}
-
-
-import logging
 
 logger = logging.getLogger(__name__)
 

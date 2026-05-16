@@ -17,9 +17,12 @@ def create_repository(db: Session, user_id: int, repo_url: str):
     db.refresh(repo)
 
     return repo
-def update_repository_status(db: Session, repo_id: int, status: RepoStatus):
+def update_repository_status(db: Session, repo_id: int, user_id: int, status: RepoStatus):
 
-    repo = db.query(Repository).filter(Repository.id == repo_id).first()
+    repo = db.query(Repository).filter(
+        Repository.id == repo_id,
+        Repository.user_id == user_id
+    ).first()
 
     if not repo:
         return None
@@ -53,3 +56,6 @@ def get_repository_if_indexed(db: Session, repo_id: int, user_id: int):
         raise HTTPException(status_code=400, detail="Repository is not indexed yet")
 
     return repo
+
+    """
+    testing in """

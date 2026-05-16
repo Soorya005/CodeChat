@@ -21,12 +21,15 @@ def register_index_path(db: Session, repo_id: int, index_path: str):
     return repo
 
 
-def get_index_path(db: Session, repo_id: int):
+def get_index_path(db: Session, repo_id: int, user_id: int):
     """
     Retrieve the FAISS index path for a repository.
     """
 
-    repo = db.query(Repository).filter(Repository.id == repo_id).first()
+    repo = db.query(Repository).filter(
+        Repository.id == repo_id,
+        Repository.user_id == user_id
+    ).first()
 
     if not repo:
         return None

@@ -10,6 +10,12 @@ SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = os.getenv("JWT_ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 30))
 
+if not SECRET_KEY:
+    raise ValueError("JWT_SECRET_KEY is not set in environment variables")
+
+if not ALGORITHM:
+    raise ValueError("JWT_ALGORITHM is not set in environment variables")
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def hash_password(password: str) -> str:
