@@ -6,278 +6,29 @@ Install deps:
     pip install sentence-transformers faiss-cpu numpy anthropic openai requests
 """
 
-import importlib
 import logging
-import os
-import re
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
-from dotenv import load_dotenv
+from typing import Dict, List, Optional, Tuple
 
+from app.rag.chunking import chunk_repository
+from app.rag.config import RAGConfig, RetrievalResult, RAGResponse
+from app.rag.embeddings import CodeEmbedder
 from app.rag.ingestion import load_repository
-from app.rag.chunking import chunk_repository, CodeChunk
-from app.rag.embeddings import CodeEmbedder, EmbeddedChunk
+from app.rag.llm_client import LLMClient
+from app.rag.prompt_builder import build_prompt, is_repo_summary_query
+from app.rag.retrieval import (
+    _build_exact_search_answer,
+    _build_fallback_answer,
+    _build_location_answer,
+    _extract_exact_search_term,
+    _extract_file_hint,
+    _is_file_explanation_query,
+    _is_location_query,
+    _is_repo_summary_query,
+    _query_prefers_python,
+)
 from app.rag.vector_store import VectorStore, create_vector_store
-from app.rag.prompt_builder import build_prompt
 
 logger = logging.getLogger(__name__)
-load_dotenv()
-
-try:
-    anthropic = importlib.import_module("anthropic")
-    ANTHROPIC_AVAILABLE = True
-except Exception:
-    anthropic = None
-    ANTHROPIC_AVAILABLE = False
-
-try:
-    openai = importlib.import_module("openai")
-    OPENAI_AVAILABLE = True
-except Exception:
-    openai = None
-    OPENAI_AVAILABLE = False
-
-try:
-    groq_module = importlib.import_module("groq")
-    GROQ_AVAILABLE = True
-except Exception:
-    groq_module = None
-    GROQ_AVAILABLE = False
-
-
-
-
-
-_GEMINI_QUOTA_ERRORS = (
-    "resource_exhausted",
-    "quota exceeded",
-    "rate limit",
-    "429",
-    "too many requests",
-    "usage spike",
-    "billing",
-)
-
-
-# ─── Configuration ───────────────────────────────────────────────
-
-@dataclass
-class RAGConfig:
-    """Configuration for the RAG pipeline."""
-    # Embedding
-    embedding_model: str = "all-MiniLM-L6-v2"
-    embedding_device: Optional[str] = None
-
-    # Vector store
-    index_type: str = "flat"  # "flat", "ivf", "hnsw", "in_memory"
-
-    # Retrieval
-    top_k: int = 8
-    similarity_threshold: float = 0.0
-
-    # LLM
-    llm_provider: str = "groq"          # "groq", "anthropic", "openai"
-    llm_model: str = "llama-3.1-8b-instant"
-    llm_temperature: float = 0.0
-    llm_max_tokens: int = 1200
-
-    # API keys (loaded from env vars automatically)
-    anthropic_api_key: Optional[str] = None
-    openai_api_key: Optional[str] = None
-    groq_api_key: Optional[str] = None
-
-    def __post_init__(self):
-        llm_provider = os.getenv("LLM_PROVIDER") or os.getenv("RAG_LLM_PROVIDER")
-        if llm_provider:
-            self.llm_provider = llm_provider.strip().lower()
-
-        if not self.anthropic_api_key:
-            self.anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not self.openai_api_key:
-            self.openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not self.groq_api_key:
-            self.groq_api_key = os.getenv("GROQ_API_KEY")
-
-        groq_model_env = os.getenv("GROQ_MODEL")
-        if groq_model_env:
-            self.llm_model = groq_model_env
-        else:
-            llm_model = os.getenv("LLM_MODEL")
-            if llm_model:
-                self.llm_model = llm_model
-
-        llm_temperature = os.getenv("LLM_TEMPERATURE")
-        if llm_temperature:
-            try:
-                self.llm_temperature = float(llm_temperature)
-            except ValueError:
-                pass
-
-        llm_max_tokens = os.getenv("LLM_MAX_TOKENS")
-        if llm_max_tokens:
-            try:
-                self.llm_max_tokens = int(llm_max_tokens)
-            except ValueError:
-                pass
-
-        rag_top_k = os.getenv("RAG_TOP_K")
-        if rag_top_k:
-            try:
-                parsed_top_k = int(rag_top_k)
-                if parsed_top_k > 0:
-                    self.top_k = parsed_top_k
-            except ValueError:
-                pass
-
-
-@dataclass
-class RetrievalResult:
-    """Result returned by RAGPipeline.retrieve()."""
-    chunks: List[Tuple]   # List of (ChunkMetadata, score) tuples
-    query: str
-    total_found: int
-
-
-@dataclass
-class RAGResponse:
-    """Complete response from RAGPipeline.query()."""
-    query: str
-    answer: str
-    retrieved_chunks: List[Tuple]
-    context_used: str
-    metadata: Dict
-
-
-# ─── LLM Client ─────────────────────────────────────────────────
-
-class LLMClient:
-    """Unified interface for Groq, Anthropic, and OpenAI."""
-
-    def __init__(self, config: RAGConfig):
-        self.config = config
-        self.provider = config.llm_provider
-        self.client = None
-
-        if self.provider == "anthropic":
-            if not ANTHROPIC_AVAILABLE:
-                raise RuntimeError("anthropic library required. Install: pip install anthropic")
-            if not config.anthropic_api_key:
-                raise ValueError("ANTHROPIC_API_KEY is not set.")
-            self.client = anthropic.Anthropic(api_key=config.anthropic_api_key)
-
-        elif self.provider == "openai":
-            if not OPENAI_AVAILABLE:
-                raise RuntimeError("openai library required. Install: pip install openai")
-            if not config.openai_api_key:
-                raise ValueError("OPENAI_API_KEY is not set.")
-            self.client = openai.OpenAI(api_key=config.openai_api_key)
-
-        elif self.provider == "groq":
-            if not GROQ_AVAILABLE:
-                raise RuntimeError("groq library required. Install: pip install groq")
-            if not config.groq_api_key:
-                raise ValueError("GROQ_API_KEY is not set.")
-            self.client = groq_module.Groq(api_key=config.groq_api_key)
-
-        else:
-            raise ValueError(
-                f"Unknown LLM provider: '{self.provider}'. "
-                "Choose 'groq', 'anthropic', or 'openai'."
-            )
-
-    def generate(self, prompt: str, system_prompt: Optional[str] = None) -> str:
-        """
-        Generate a response from the configured LLM.
-        """
-        if self.provider == "anthropic":
-            kwargs = {
-                "model": self.config.llm_model,
-                "max_tokens": self.config.llm_max_tokens,
-                "temperature": self.config.llm_temperature,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-            if system_prompt:
-                kwargs["system"] = system_prompt
-            response = self.client.messages.create(**kwargs)
-            return response.content[0].text
-
-        if self.provider == "openai":
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
-            response = self.client.chat.completions.create(
-                model=self.config.llm_model,
-                messages=messages,
-                temperature=self.config.llm_temperature,
-                max_tokens=self.config.llm_max_tokens,
-            )
-            return response.choices[0].message.content
-
-        if self.provider == "groq":
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
-            completion = self.client.chat.completions.create(
-                model=self.config.llm_model,
-                messages=messages,
-                temperature=self.config.llm_temperature,
-                max_tokens=self.config.llm_max_tokens,
-            )
-            return completion.choices[0].message.content
-
-        return ""
-
-    def generate_stream(self, prompt: str, system_prompt: Optional[str] = None):
-        """Yields string tokens from the configured LLM streaming API."""
-        if self.provider == "anthropic":
-            kwargs = {
-                "model": self.config.llm_model,
-                "max_tokens": self.config.llm_max_tokens,
-                "temperature": self.config.llm_temperature,
-                "messages": [{"role": "user", "content": prompt}],
-            }
-            if system_prompt:
-                kwargs["system"] = system_prompt
-            with self.client.messages.stream(**kwargs) as stream:
-                for text in stream.text_stream:
-                    yield text
-            return
-
-        if self.provider == "openai":
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
-            response = self.client.chat.completions.create(
-                model=self.config.llm_model,
-                messages=messages,
-                temperature=self.config.llm_temperature,
-                max_tokens=self.config.llm_max_tokens,
-                stream=True,
-            )
-            for chunk in response:
-                if chunk.choices[0].delta.content is not None:
-                    yield chunk.choices[0].delta.content
-            return
-
-        if self.provider == "groq":
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": prompt})
-            completion = self.client.chat.completions.create(
-                model=self.config.llm_model,
-                messages=messages,
-                temperature=self.config.llm_temperature,
-                max_tokens=self.config.llm_max_tokens,
-                stream=True,
-            )
-            for chunk in completion:
-                if chunk.choices[0].delta.content is not None:
-                    yield chunk.choices[0].delta.content
-            return
 
 
 class PromptBuilder:
@@ -298,8 +49,6 @@ class PromptBuilder:
     @staticmethod
     def build_user_prompt(query: str, context_chunks: List[Tuple]) -> str:
         """Delegate to prompt_builder module for consistent formatting."""
-        from app.rag.prompt_builder import is_repo_summary_query, build_prompt
-
         if is_repo_summary_query(query):
             return build_prompt(
                 query,
@@ -830,14 +579,14 @@ class RAGPipeline:
         top_k: Optional[int] = None,
         filters: Optional[Dict] = None,
     ) -> RetrievalResult:
-        file_hint = self._extract_file_hint(query)
-        is_file_explanation_query = self._is_file_explanation_query(query, file_hint)
+        file_hint = _extract_file_hint(query)
+        is_file_explanation_query = _is_file_explanation_query(query, file_hint)
         retrieval_top_k = top_k or self.config.top_k
         if is_file_explanation_query:
             retrieval_top_k = max(retrieval_top_k, 12)
         effective_filters = dict(filters) if filters else {}
 
-        if "language" not in effective_filters and self._query_prefers_python(query):
+        if "language" not in effective_filters and _query_prefers_python(query):
             effective_filters["language"] = "python"
 
         retrieval_result = self.retrieve(
@@ -862,9 +611,17 @@ class RAGPipeline:
                     total_found=len(file_context_hits),
                 )
 
-        hinted = [(meta, score) for meta, score in retrieval_result.chunks if file_hint in meta.file_path.lower()]
+        hinted = [
+            (meta, score)
+            for meta, score in retrieval_result.chunks
+            if file_hint in meta.file_path.lower()
+        ]
         if hinted:
-            non_hinted = [(meta, score) for meta, score in retrieval_result.chunks if file_hint not in meta.file_path.lower()]
+            non_hinted = [
+                (meta, score)
+                for meta, score in retrieval_result.chunks
+                if file_hint not in meta.file_path.lower()
+            ]
             merged = (hinted + non_hinted)[:retrieval_top_k]
             return RetrievalResult(
                 chunks=merged,
@@ -913,9 +670,9 @@ class RAGPipeline:
             self.llm_client = LLMClient(self.config)
 
         effective_top_k = top_k
-        file_hint = self._extract_file_hint(query)
-        is_file_explanation_query = self._is_file_explanation_query(query, file_hint)
-        if effective_top_k is None and (self._is_repo_summary_query(query) or is_file_explanation_query):
+        file_hint = _extract_file_hint(query)
+        is_file_explanation_query = _is_file_explanation_query(query, file_hint)
+        if effective_top_k is None and (_is_repo_summary_query(query) or is_file_explanation_query):
             effective_top_k = max(self.config.top_k, 12)
 
         retrieval_result = self._retrieve_with_query_hints(query, effective_top_k, filters)
@@ -930,9 +687,9 @@ class RAGPipeline:
                 metadata={"total_chunks_found": 0},
             )
 
-        exact_term = self._extract_exact_search_term(query)
+        exact_term = _extract_exact_search_term(query)
         if exact_term:
-            exact_answer = self._build_exact_search_answer(exact_term)
+            exact_answer = _build_exact_search_answer(exact_term, self.vector_store)
             if exact_answer:
                 return RAGResponse(
                     query=query,
@@ -946,8 +703,8 @@ class RAGPipeline:
                     },
                 )
 
-        if self._is_location_query(query):
-            location_answer = self._build_location_answer(query, retrieval_result.chunks)
+        if _is_location_query(query):
+            location_answer = _build_location_answer(query, retrieval_result.chunks, self.vector_store)
             if location_answer:
                 return RAGResponse(
                     query=query,
@@ -977,7 +734,7 @@ class RAGPipeline:
             answer = ""
 
             if not answer:
-                answer = self._build_fallback_answer(
+                answer = _build_fallback_answer(
                     query,
                     retrieval_result.chunks,
                     generation_error=generation_error,
@@ -993,7 +750,7 @@ class RAGPipeline:
                 "chunks_used": len(retrieval_result.chunks),
                 "llm_model": self.config.llm_model,
                 "embedding_model": self.config.embedding_model,
-                    "effective_top_k": effective_top_k or self.config.top_k,
+                "effective_top_k": effective_top_k or self.config.top_k,
                 "used_compact_retry": used_compact_retry,
                 "generation_error": generation_error,
             },
@@ -1013,9 +770,9 @@ class RAGPipeline:
             self.llm_client = LLMClient(self.config)
 
         effective_top_k = top_k
-        file_hint = self._extract_file_hint(query)
-        is_file_explanation_query = self._is_file_explanation_query(query, file_hint)
-        if effective_top_k is None and (self._is_repo_summary_query(query) or is_file_explanation_query):
+        file_hint = _extract_file_hint(query)
+        is_file_explanation_query = _is_file_explanation_query(query, file_hint)
+        if effective_top_k is None and (_is_repo_summary_query(query) or is_file_explanation_query):
             effective_top_k = max(self.config.top_k, 12)
 
         retrieval_result = self._retrieve_with_query_hints(query, effective_top_k, filters)
@@ -1027,14 +784,14 @@ class RAGPipeline:
             logger.warning("[RAG Pipeline] No relevant chunks found for query: '%s'", query)
             return retrieval_result.chunks, simple_generator("No relevant code found in the repository for this query.")
 
-        exact_term = self._extract_exact_search_term(query)
+        exact_term = _extract_exact_search_term(query)
         if exact_term:
-            exact_answer = self._build_exact_search_answer(exact_term)
+            exact_answer = _build_exact_search_answer(exact_term, self.vector_store)
             if exact_answer:
                 return retrieval_result.chunks, simple_generator(exact_answer)
 
-        if self._is_location_query(query):
-            location_answer = self._build_location_answer(query, retrieval_result.chunks)
+        if _is_location_query(query):
+            location_answer = _build_location_answer(query, retrieval_result.chunks, self.vector_store)
             if location_answer:
                 return retrieval_result.chunks, simple_generator(location_answer)
 
@@ -1049,71 +806,35 @@ class RAGPipeline:
                     yield token
             except Exception as exc:
                 logger.warning("LLM stream generation failed: %s", exc)
-                fallback = self._build_fallback_answer(query, retrieval_result.chunks, generation_error=str(exc))
+                fallback = _build_fallback_answer(query, retrieval_result.chunks, generation_error=str(exc))
                 yield fallback
 
         return retrieval_result.chunks, stream_generator()
 
-    # ── Interactive Mode ─────────────────────────────────────────
-
-    def interactive_mode(self):
-        """Launch an interactive REPL for querying the indexed codebase."""
-        border = "=" * 60
-        print(f"\n{border}\n🤖 RAG Pipeline – Interactive Mode\n{border}")
-        print("Commands: stats | filter <lang> | clear | quit\n" + border + "\n")
-
-        current_filters = None
-
-        while True:
-            try:
-                user_input = input("\n💬 You: ").strip()
-                if not user_input:
-                    continue
-                if user_input.lower() == "quit":
-                    print("👋 Goodbye!")
-                    break
-                if user_input.lower() == "stats":
-                    stats = self.vector_store.get_stats()
-                    print(
-                        f"\n📊 Stats: {stats['total_chunks']} chunks | "
-                        f"Languages: {stats['languages']} | "
-                        f"Types: {stats['chunk_types']}"
-                    )
-                    continue
-                if user_input.lower().startswith("filter "):
-                    lang = user_input[7:].strip()
-                    current_filters = {"language": lang}
-                    print(f"🔍 Filtering by language: {lang}")
-                    continue
-                if user_input.lower() == "clear":
-                    current_filters = None
-                    print("🔍 Filters cleared")
-                    continue
-
-                response = self.query(user_input, filters=current_filters)
-                print(f"\n🤖 Assistant:\n{response.answer}")
-                print(f"\n📚 Retrieved {response.metadata['chunks_used']} chunk(s):")
-                for i, (meta, score) in enumerate(response.retrieved_chunks[:3], 1):
-                    print(
-                        f"   {i}. {meta.symbol_name} "
-                        f"– {meta.file_path}:{meta.start_line} "
-                        f"(score: {score:.3f})"
-                    )
-
-            except KeyboardInterrupt:
-                print("\n👋 Goodbye!")
-                break
-            except Exception as exc:
-                logger.error("[RAG Pipeline] Unhandled error: %s", exc, exc_info=True)
-                print(f"❌ Error: {exc}")
-
 
 # ─── CLI Entry Point ─────────────────────────────────────────────
+
+def _run_interactive(index_path: str, config: RAGConfig) -> None:
+    import importlib.util
+    from pathlib import Path
+
+    script_path = Path(__file__).resolve().parents[2] / "scripts" / "interactive.py"
+    spec = importlib.util.spec_from_file_location("rag_interactive", script_path)
+    if not spec or not spec.loader:
+        raise RuntimeError("Interactive script could not be loaded.")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    if not hasattr(module, "run_interactive"):
+        raise RuntimeError("Interactive runner is missing in scripts/interactive.py")
+
+    module.run_interactive(index_path, config)
+
 
 def main():
     """Command-line entry point."""
     import argparse
-    import sys
 
     logging.basicConfig(
         level=logging.INFO,
@@ -1130,10 +851,9 @@ def main():
     parser.add_argument("--query",      help="Query string")
     parser.add_argument("--top-k",      type=int, default=5)
     parser.add_argument("--model",      default="all-MiniLM-L6-v2")
-    parser.add_argument("--llm",        default="ollama",
-                        choices=["ollama", "anthropic", "openai"])
+    parser.add_argument("--llm",        default="groq",
+                        choices=["groq", "anthropic", "openai"])
     parser.add_argument("--llm-model",  help="LLM model name (e.g. llama3.2)")
-    parser.add_argument("--ollama-url", default="http://localhost:11434")
 
     args = parser.parse_args()
 
@@ -1141,7 +861,6 @@ def main():
         embedding_model=args.model,
         top_k=args.top_k,
         llm_provider=args.llm,
-        ollama_base_url=args.ollama_url,
     )
     if args.llm_model:
         config.llm_model = args.llm_model
@@ -1174,8 +893,7 @@ def main():
     elif args.command == "interactive":
         if not args.index_path:
             parser.error("--index-path required for 'interactive' command")
-        pipeline.load_index(args.index_path)
-        pipeline.interactive_mode()
+        _run_interactive(args.index_path, config)
 
 
 if __name__ == "__main__":
