@@ -313,3 +313,5 @@ if __name__ == "__main__":
     for c in chunks[:5]:
         print(f"  [{c.language}] {c.chunk_type} '{c.symbol_name}' "
               f"({c.file_path}:{c.start_line}-{c.end_line})")
+
+              

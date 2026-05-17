@@ -27,4 +27,4 @@ def ensure_repository_sync_key_column() -> None:
 
 Base.metadata.create_all(bind=engine)
 ensure_repository_sync_key_column()
-print("✅ Tables created successfully")
+print("Tables created successfully")

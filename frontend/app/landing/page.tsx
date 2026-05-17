@@ -250,7 +250,7 @@ export default function LandingPage() {
               <Bot className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
               <div className="space-y-1.5">
                 <p className="text-white/70">Nested layouts in App Router work by placing <span className="text-cyan-400">layout.tsx</span> files at each route segment.</p>
-                <p className="text-white/40 text-xs">📚 Sources: <span className="text-blue-400">packages/next/src/server/app-render/app-render.tsx:247</span></p>
+                <p className="text-white/40 text-xs">Sources: <span className="text-blue-400">packages/next/src/server/app-render/app-render.tsx:247</span></p>
               </div>
             </div>
             <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/5">

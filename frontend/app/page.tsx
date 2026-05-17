@@ -235,7 +235,7 @@ export default function Home() {
             const starterMessage: Message = {
               id: crypto.randomUUID(),
               role: "assistant",
-              content: `✅ Repository indexed successfully! I've processed the codebase and I'm ready to answer your questions. What would you like to know?`,
+              content: `Repository indexed successfully! I've processed the codebase and I'm ready to answer your questions. What would you like to know?`,
               timestamp: new Date(),
             }
 
@@ -378,7 +378,7 @@ export default function Home() {
         )
       )
     } catch (err: unknown) {
-      const errorContent = `❌ Error: ${err instanceof Error ? err.message : "Failed to get response from backend."}`
+      const errorContent = `Error: ${err instanceof Error ? err.message : "Failed to get response from backend."}`
       
       setMessages((prev: Message[]) => 
         prev.map((m) => m.id === assistantMessageId ? { ...m, content: errorContent } : m)
@@ -572,7 +572,7 @@ export default function Home() {
 
             <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-md">
               <p className="text-amber-400 text-xs">
-                ⚠️ <strong>Important:</strong> The ngrok URL changes every time you restart ngrok (unless on a paid plan). Update <code className="bg-zinc-800 px-1 rounded">CODECHAT_BACKEND_URL</code> in GitHub Secrets after every ngrok restart.
+                <strong>Important:</strong> The ngrok URL changes every time you restart ngrok (unless on a paid plan). Update <code className="bg-zinc-800 px-1 rounded">CODECHAT_BACKEND_URL</code> in GitHub Secrets after every ngrok restart.
               </p>
             </div>
 

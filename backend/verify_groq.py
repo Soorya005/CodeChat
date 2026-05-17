@@ -5,7 +5,7 @@ def test_groq():
     load_dotenv()
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        print("❌ GROQ_API_KEY is not set in your .env file.")
+        print("ERROR: GROQ_API_KEY is not set in your .env file.")
         return
 
     try:
@@ -21,11 +21,11 @@ def test_groq():
             max_tokens=10,
         )
         text = response.choices[0].message.content.strip()
-        print(f"✅ Groq responded: {text!r}")
+        print(f"Groq responded: {text!r}")
     except ImportError:
-        print("❌ Groq Python package is not installed. Run: pip install groq")
+        print("ERROR: Groq Python package is not installed. Run: pip install groq")
     except Exception as e:
-        print(f"❌ Groq call failed: {e}")
+        print(f"ERROR: Groq call failed: {e}")
 
 if __name__ == "__main__":
     test_groq()
