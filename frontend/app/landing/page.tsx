@@ -83,11 +83,6 @@ const STEPS = [
   { n: "03", title: "Chat with your code", desc: "Ask anything — architecture questions, bug hunting, onboarding walkthroughs." },
 ]
 
-const TESTIMONIALS = [
-  { name: "Aryan K.", role: "Backend Engineer", stars: 5, text: "CodeChat cut my onboarding time in half. I understood a 40k-line codebase in under an hour." },
-  { name: "Priya M.", role: "ML Engineer", stars: 5, text: "The RAG pipeline is incredible. Every answer comes with exact file and line references." },
-  { name: "James T.", role: "Open Source Maintainer", stars: 5, text: "My contributors now answer their own questions. Support requests dropped by 70%." },
-]
 
 export default function LandingPage() {
   const typed = useTypingEffect(TYPED_STRINGS)
@@ -115,14 +110,14 @@ export default function LandingPage() {
       >
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-              <Code2 className="h-4 w-4 text-white" />
+            <div className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center shadow-lg shadow-blue-500/20 bg-black">
+              <img src="/logo.png" alt="CodeChat Logo" className="w-full h-full object-cover" />
             </div>
             <span className="text-base font-semibold tracking-tight">CodeChat</span>
           </div>
 
           <div className="hidden md:flex items-center gap-8">
-            {["Features", "How it works", "Testimonials"].map((item) => (
+            {["Features", "How it works"].map((item) => (
               <a
                 key={item}
                 href={`#${item.toLowerCase().replace(/ /g, "-")}`}
@@ -152,11 +147,7 @@ export default function LandingPage() {
 
       {/* ── Hero ── */}
       <section ref={heroRef} className="relative pt-40 pb-32 px-6 text-center">
-        {/* Badge */}
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-white/10 bg-white/5 backdrop-blur-sm text-xs text-white/70 mb-10 hover:border-white/20 transition-colors cursor-default">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          Powered by local Ollama LLaMA 3.2 · No data leaves your machine
-        </div>
+
 
         {/* Headline */}
         <h1 className="text-5xl md:text-8xl font-black tracking-tighter leading-[1] mb-6 max-w-5xl mx-auto">
@@ -200,26 +191,7 @@ export default function LandingPage() {
           </a>
         </div>
 
-        {/* Social proof */}
-        <div className="flex items-center justify-center gap-2 mt-12 text-sm text-white/40">
-          <div className="flex -space-x-2">
-            {["AB", "PS", "KR", "MJ", "TW"].map((initials, i) => (
-              <div
-                key={i}
-                className="w-7 h-7 rounded-full border-2 border-black flex items-center justify-center text-[9px] font-bold text-white"
-                style={{
-                  background: `hsl(${200 + i * 30}, 80%, 50%)`,
-                }}
-              >
-                {initials}
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center gap-1 text-yellow-400 text-xs">
-            {Array.from({ length: 5 }).map((_, i) => <Star key={i} className="h-3 w-3 fill-yellow-400" />)}
-          </div>
-          <span>Trusted by <strong className="text-white/70">500+</strong> developers</span>
-        </div>
+
       </section>
 
       {/* ── Terminal preview ── */}
@@ -313,33 +285,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── Testimonials ── */}
-      <section id="testimonials" className="px-6 pb-28 max-w-6xl mx-auto">
-        <div className="text-center mb-16">
-          <p className="text-xs text-emerald-400 font-semibold tracking-widest uppercase mb-3">Testimonials</p>
-          <h2 className="text-4xl md:text-5xl font-black tracking-tighter">Loved by developers</h2>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {TESTIMONIALS.map((t, i) => (
-            <div
-              key={i}
-              className="p-6 rounded-2xl border border-white/6 bg-white/[0.02]"
-            >
-              <div className="flex items-center gap-0.5 mb-4">
-                {Array.from({ length: t.stars }).map((_, s) => (
-                  <Star key={s} className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
-                ))}
-              </div>
-              <p className="text-sm text-white/70 leading-relaxed mb-5">"{t.text}"</p>
-              <div>
-                <p className="text-sm font-semibold text-white">{t.name}</p>
-                <p className="text-xs text-white/40">{t.role}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
 
       {/* ── CTA Banner ── */}
       <section className="px-6 pb-28 max-w-4xl mx-auto">

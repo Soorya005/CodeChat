@@ -48,28 +48,8 @@ export default function LoginPage() {
           <span className="text-lg font-semibold tracking-tight">CodeChat</span>
         </div>
 
-        {/* Quote */}
-        <div className="relative space-y-8">
-          <blockquote className="text-2xl font-light text-white/80 leading-relaxed">
-            "CodeChat cut my onboarding time in half. I understood a 40k-line codebase in under an hour."
-          </blockquote>
-          <div>
-            <p className="text-sm font-semibold text-white">Aryan K.</p>
-            <p className="text-sm text-white/40">Backend Engineer</p>
-          </div>
-
-          {/* Feature pills */}
-          <div className="flex flex-wrap gap-2">
-            {["RAG-powered", "Groq Cloud", "GitHub sync", "Semantic search"].map((pill) => (
-              <span
-                key={pill}
-                className="px-3 py-1 rounded-full border border-white/10 bg-white/5 text-xs text-white/50"
-              >
-                {pill}
-              </span>
-            ))}
-          </div>
-        </div>
+        {/* Placeholder for removed content */}
+        <div className="relative"></div>
 
         {/* Bottom link */}
         <div className="relative text-xs text-white/30">

@@ -4,12 +4,11 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { useAuth } from "@/context/auth-context"
-import { Code2, Lock, User, AlertCircle, ArrowRight, CheckCircle, Eye, EyeOff, Check } from "lucide-react"
+import { Lock, User, AlertCircle, ArrowRight, CheckCircle, Eye, EyeOff, Check } from "lucide-react"
 
 const PERKS = [
   "Index unlimited repositories",
   "AI-powered semantic search",
-  "Local LLM — data never leaves",
   "GitHub CI/CD auto re-indexing",
 ]
 
@@ -78,8 +77,8 @@ export default function RegisterPage() {
 
         {/* Logo */}
         <div className="relative flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <Code2 className="h-5 w-5 text-white" />
+          <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center shadow-lg shadow-blue-500/20 bg-black">
+            <img src="/logo.png" alt="CodeChat Logo" className="w-full h-full object-cover" />
           </div>
           <span className="text-lg font-semibold tracking-tight">CodeChat</span>
         </div>
@@ -88,7 +87,6 @@ export default function RegisterPage() {
         <div className="relative space-y-6">
           <div>
             <h2 className="text-3xl font-bold tracking-tight mb-2">Start understanding<br />code faster today.</h2>
-            <p className="text-white/40 text-sm">Free forever. No credit card required.</p>
           </div>
 
           <ul className="space-y-3">
@@ -102,15 +100,7 @@ export default function RegisterPage() {
             ))}
           </ul>
 
-          {/* Stats */}
-          <div className="grid grid-cols-2 gap-4">
-            {[["500+", "Developers"], ["10k+", "Repos indexed"], ["99%", "Uptime"]].slice(0, 2).map(([val, label]) => (
-              <div key={label} className="p-4 rounded-xl border border-white/6 bg-white/3">
-                <p className="text-2xl font-bold text-white">{val}</p>
-                <p className="text-xs text-white/40">{label}</p>
-              </div>
-            ))}
-          </div>
+
         </div>
 
         {/* Bottom link */}
@@ -130,8 +120,8 @@ export default function RegisterPage() {
         <div className="relative w-full max-w-md">
           {/* Mobile logo */}
           <div className="flex items-center justify-center gap-2.5 mb-10 lg:hidden">
-            <div className="w-9 h-9 rounded-xl bg-blue-500 flex items-center justify-center">
-              <Code2 className="h-5 w-5 text-white" />
+            <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center bg-black">
+              <img src="/logo.png" alt="CodeChat Logo" className="w-full h-full object-cover" />
             </div>
             <span className="text-lg font-semibold">CodeChat</span>
           </div>
