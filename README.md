@@ -7,38 +7,49 @@ Can use api key for access cloud llms too
 
 - Python 3.12+
 - Node.js 18+
-- Ollama installed
 
-## 2) Clone
+## 2) ⚠️ Get GROQ API Key First (Required)
+
+CodeChat uses Groq for instant, high-speed LLM responses. 
+1. Visit [console.groq.com](https://console.groq.com)
+2. Sign up and create an API key
+3. Save it - you'll need it in step 4
+
+## 3) Clone
 
 ```bash
 git clone https://github.com/Soorya005/cclatest.git
 cd cclatest
 ```
 
-## 3) Backend setup
+## 4) Backend Setup
 
 ```bash
 cd backend
 python3 -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
+```
+
+**IMPORTANT: Edit `backend/.env` and replace:**
+```env
+GROQ_API_KEY=your_api_key_from_console.groq.com
+JWT_SECRET_KEY=change-me-before-production
+```
+
+Then initialize database and start:
+```bash
 python create_tables.py
 uvicorn app.main:app --reload
 ```
 
 Backend runs at: `http://127.0.0.1:8000`
 
-## 4) Groq API Key
-
-CodeChat uses Groq to provide instant, high-speed LLM responses. You must set a `GROQ_API_KEY` in your `.env` file before running the backend.
-Get your free API key at [console.groq.com](https://console.groq.com).
-
 > **Migration Note for Existing Users:**
 > CodeChat is now exclusively powered by Groq. Ollama and Gemini fallback support have been removed. If you are updating from a previous version, please ensure your `.env` file is updated to remove `OLLAMA_*` and `GEMINI_*` variables, and ensure `GROQ_API_KEY` is set.
 
-## 5) Frontend setup
+## 5) Frontend Setup
 
 In another terminal:
 
@@ -51,27 +62,42 @@ npm run dev
 
 Frontend runs at: `http://localhost:3000`
 
-### Windows quick start
+**Note:** Make sure `NEXT_PUBLIC_API_URL=http://localhost:8000` in `.env.local` matches your backend URL.
 
-From PowerShell in the repo root, run:
+## 6) First Run
 
-```powershell
-.\run.ps1
-```
+1. Open http://localhost:3000 in your browser
+2. Register and login
+3. Add a repository URL
+4. Index repository
+5. Ask questions in chat
 
-This starts the backend and frontend together.
+## 7) Troubleshooting
 
-## 6) First run flow
+**"Loading error" or "failed to fetch" in frontend:**
+- ✅ Is backend running? Check http://127.0.0.1:8000 in browser
+- ✅ Does `.env.local` have correct `NEXT_PUBLIC_API_URL`?
+- ✅ Are both running on expected ports (backend: 8000, frontend: 3000)?
 
-1. Register and login in UI
-2. Add a repository URL
-3. Index repository
-4. Ask questions in chat
+**"GROQ_API_KEY" error:**
+- Get a free key at https://console.groq.com
+- Update `backend/.env` with your key
 
-## Notes
+**"Database" errors:**
+- Run `python create_tables.py` in backend/ directory
 
-- Do **not** commit real `.env` files with secrets.
-- Local generated files (`backend/indexes/`, `backend/codechat.db`, `.venv/`) are ignored.
+**Windows users:**
+- Use `.venv\Scripts\activate` instead of `source .venv/bin/activate`
+- Or run `.\run.ps1` from PowerShell in repo root
+
+## 8) Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GROQ_API_KEY` | ✅ Yes | Get from console.groq.com |
+| `JWT_SECRET_KEY` | ✅ Yes | Change from default before production |
+| `DATABASE_URL` | No | Defaults to SQLite (local database) |
+| `NEXT_PUBLIC_API_URL` | ✅ Yes (frontend) | URL where backend is running |
 
 ## 7) CI/CD auto-sync to CodeChat (localhost via ngrok)
 

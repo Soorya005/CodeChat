@@ -27,12 +27,19 @@ if [[ ! -f ".env.local" ]]; then
   echo "Created frontend/.env.local from .env.example"
 fi
 
-echo "[3/4] Ollama model"
-if command -v ollama >/dev/null 2>&1; then
-  ollama pull llama3.2:1b || true
-else
-  echo "Ollama not found. Install Ollama and run: ollama pull llama3.2:1b"
-fi
+echo "[3/4] Database initialization"
+cd "$ROOT_DIR/backend"
+source .venv/bin/activate
+python create_tables.py
 
-echo "[4/4] Done"
+echo "[4/4] Setup complete!"
+echo ""
+echo "⚠️  IMPORTANT: Set your GROQ API Key"
+echo "1. Visit: https://console.groq.com"
+echo "2. Get your API key"
+echo "3. Update backend/.env with: GROQ_API_KEY=your_key_here"
+echo ""
+echo "To start the app:"
+echo "  Terminal 1: cd backend && source .venv/bin/activate && uvicorn app.main:app --reload"
+echo "  Terminal 2: cd frontend && npm run dev"
 echo "Run ./run.sh to start backend, frontend, and ollama checks."
