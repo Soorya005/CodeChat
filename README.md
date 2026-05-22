@@ -1,117 +1,236 @@
-# CodeChat (Backend + Frontend)
+# CodeChat — AI-Powered Repository Intelligence Platform
 
-Clone and run locally with minimal setup.
-Can use api key for access cloud llms too
+CodeChat is a full-stack AI repository intelligence platform that helps developers understand, navigate, and interact with software codebases using Retrieval-Augmented Generation (RAG).
 
-## 1) Prerequisites
+Unlike generic AI chatbots, CodeChat performs syntax-aware code parsing, semantic retrieval, and repository-specific contextual reasoning to provide accurate answers about uploaded repositories.
+
+Built with a modern React + FastAPI architecture, the platform supports intelligent repository ingestion, vector-based semantic search, authentication, persistent chat history, and automated repository re-indexing workflows.
+
+---
+
+# Features
+
+- AI-powered repository chat
+- Syntax-aware code chunking using AST + Tree-sitter
+- Semantic vector search using FAISS
+- Repository-specific contextual responses
+- Authentication and user-based chat history
+- Multi-language repository support
+- CI/CD-assisted automatic re-indexing
+- Groq-powered ultra-fast LLM responses
+- Modular RAG pipeline architecture
+- Docker-ready deployment support
+
+---
+
+# Architecture
+
+```text
+Repository → Ingestion → AST/Tree-sitter Chunking
+           → Embeddings → FAISS Vector Store
+           → Semantic Retrieval → LLM Response
+           → React Chat Interface
+```
+
+---
+
+# Tech Stack
+
+## Frontend
+- React
+- Next.js
+- TailwindCSS
+
+## Backend
+- FastAPI
+- Python
+- JWT Authentication
+
+## AI / RAG
+- FAISS
+- Sentence Transformers
+- AST Parsing
+- Tree-sitter
+- Groq API
+
+## Database
+- PostgreSQL / SQLite
+
+---
+
+# Prerequisites
 
 - Python 3.12+
 - Node.js 18+
+- Git
 
-## 2) ⚠️ Get GROQ API Key First (Required)
+---
 
-CodeChat uses Groq for instant, high-speed LLM responses. 
-1. Visit [console.groq.com](https://console.groq.com)
-2. Sign up and create an API key
-3. Save it - you'll need it in step 4
-
-## 3) Clone
+# 1. Clone Repository
 
 ```bash
 git clone https://github.com/Soorya005/cclatest.git
 cd cclatest
 ```
 
-## 4) Backend Setup
+---
+
+# 2. Get Groq API Key
+
+CodeChat uses Groq Cloud for high-speed inference.
+
+1. Visit:
+   https://console.groq.com
+
+2. Create a free API key
+
+3. Save the key for backend configuration
+
+---
+
+# 3. Backend Setup
 
 ```bash
 cd backend
+
 python3 -m venv .venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
+
+## Activate Virtual Environment
+
+### Linux/macOS
+```bash
+source .venv/bin/activate
+```
+
+### Windows PowerShell
+```powershell
+.venv\Scripts\activate
+```
+
+## Install Dependencies
+
+```bash
 pip install -r requirements.txt
+```
+
+## Configure Environment Variables
+
+```bash
 cp .env.example .env
 ```
 
-**IMPORTANT: Edit `backend/.env` and replace:**
+Edit `backend/.env`:
+
 ```env
-GROQ_API_KEY=your_api_key_from_console.groq.com
-JWT_SECRET_KEY=change-me-before-production
+GROQ_API_KEY=your_groq_api_key
+JWT_SECRET_KEY=change-this-in-production
 ```
 
-Then initialize database and start:
+## Initialize Database
+
 ```bash
 python create_tables.py
+```
+
+## Start Backend Server
+
+```bash
 uvicorn app.main:app --reload
 ```
 
-Backend runs at: `http://127.0.0.1:8000`
+Backend runs at:
 
-> **Migration Note for Existing Users:**
-> CodeChat is now exclusively powered by Groq. Ollama and Gemini fallback support have been removed. If you are updating from a previous version, please ensure your `.env` file is updated to remove `OLLAMA_*` and `GEMINI_*` variables, and ensure `GROQ_API_KEY` is set.
+```text
+http://127.0.0.1:8000
+```
 
-## 5) Frontend Setup
+---
 
-In another terminal:
+# 4. Frontend Setup
+
+Open another terminal:
 
 ```bash
 cd frontend
+
 npm install
+```
+
+## Configure Frontend Environment
+
+```bash
 cp .env.example .env.local
+```
+
+Ensure:
+
+```env
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
+```
+
+## Start Frontend
+
+```bash
 npm run dev
 ```
 
-Frontend runs at: `http://localhost:3000`
+Frontend runs at:
 
-**Note:** Make sure `NEXT_PUBLIC_API_URL=http://localhost:8000` in `.env.local` matches your backend URL.
+```text
+http://localhost:3000
+```
 
-## 6) First Run
+---
 
-1. Open http://localhost:3000 in your browser
-2. Register and login
-3. Add a repository URL
-4. Index repository
-5. Ask questions in chat
+# 5. First Run
 
-## 7) Troubleshooting
+1. Open:
+   ```text
+   http://localhost:3000
+   ```
 
-**"Loading error" or "failed to fetch" in frontend:**
-- ✅ Is backend running? Check http://127.0.0.1:8000 in browser
-- ✅ Does `.env.local` have correct `NEXT_PUBLIC_API_URL`?
-- ✅ Are both running on expected ports (backend: 8000, frontend: 3000)?
+2. Register an account
 
-**"GROQ_API_KEY" error:**
-- Get a free key at https://console.groq.com
-- Update `backend/.env` with your key
+3. Login
 
-**"Database" errors:**
-- Run `python create_tables.py` in backend/ directory
+4. Add a GitHub repository
 
-**Windows users:**
-- Use `.venv\Scripts\activate` instead of `source .venv/bin/activate`
-- Or run `.\run.ps1` from PowerShell in repo root
+5. Start indexing
 
-## 8) Environment Variables
+6. Ask repository-specific questions
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `GROQ_API_KEY` | ✅ Yes | Get from console.groq.com |
-| `JWT_SECRET_KEY` | ✅ Yes | Change from default before production |
-| `DATABASE_URL` | No | Defaults to SQLite (local database) |
-| `NEXT_PUBLIC_API_URL` | ✅ Yes (frontend) | URL where backend is running |
+---
 
-## 7) CI/CD auto-sync to CodeChat (localhost via ngrok)
+# Repository Sync & CI/CD Integration
 
-This project already supports background re-indexing through:
+CodeChat supports automatic repository re-indexing through GitHub Actions.
 
-- `POST /repository/sync/{repo_id}?api_key=...`
+Every push to the target repository can automatically trigger background re-indexing.
 
-Use GitHub Actions in your target repository so every push to `main` triggers this endpoint.
+---
 
-### Step A: Run backend and expose it with ngrok
+# Sync Workflow Overview
+
+```text
+GitHub Push
+    ↓
+GitHub Actions
+    ↓
+CodeChat Sync Endpoint
+    ↓
+Repository Re-indexing
+    ↓
+Updated Vector Database
+```
+
+---
+
+# Step 1 — Expose Backend Using ngrok
+
+Run backend:
 
 ```bash
-cd backend
-source .venv/bin/activate
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -121,43 +240,167 @@ In another terminal:
 ngrok http 8000
 ```
 
-Copy the public forwarding URL (example: `https://abc123.ngrok-free.app`).
+Copy the generated public URL:
 
-### Step B: Get `repo_id` and `sync_api_key` from CodeChat
+```text
+https://xxxxx.ngrok-free.app
+```
 
-After login in UI, add your target repository URL.
+---
 
-The backend response from `POST /repository/add` includes:
+# Step 2 — Add Repository in CodeChat
 
-- `repository_id` -> use as `CODECHAT_REPO_ID`
-- `sync_api_key` -> use as `CODECHAT_API_KEY`
+After logging into CodeChat:
 
-### Step C: Configure GitHub repository settings (target repo)
+- Add repository URL
+- Backend returns:
+  - `repository_id`
+  - `sync_api_key`
 
-In the target GitHub repository:
+These are required for GitHub Actions integration.
 
-- Settings -> Secrets and variables -> Actions -> **Secrets**
-	- Add `CODECHAT_API_KEY` with value from `sync_api_key`
-- Settings -> Secrets and variables -> Actions -> **Variables**
-	- Add `CODECHAT_URL` with your ngrok URL (no trailing slash)
-	- Add `CODECHAT_REPO_ID` with numeric `repository_id`
+---
 
-### Step D: Enable workflow in target repo
+# Step 3 — Configure GitHub Secrets
 
-Use the workflow file at `.github/workflows/codechat-sync.yml`.
+In target repository:
 
-It triggers on:
+## Add GitHub Secrets
 
-- `push` to `main`
-- manual run (`workflow_dispatch`)
+```text
+CODECHAT_API_KEY
+```
 
-### Step E: Validate
+## Add GitHub Variables
 
-1. Push a small commit to `main` in target repo.
-2. Confirm workflow success in GitHub Actions.
-3. In CodeChat UI, check status transitions `INDEXING` -> `INDEXED`.
-4. Query newly pushed code and verify updated answers.
+```text
+CODECHAT_URL
+CODECHAT_REPO_ID
+```
 
-### Important for localhost + ngrok
+---
 
-Each time ngrok URL changes, update GitHub Actions variable `CODECHAT_URL`.
+# Step 4 — Enable Workflow
+
+Use:
+
+```text
+.github/workflows/codechat-sync.yml
+```
+
+Triggers:
+- Push to `main`
+- Manual workflow execution
+
+---
+
+# Troubleshooting
+
+## Frontend Cannot Connect to Backend
+
+Check:
+- Backend running on port 8000
+- Correct `NEXT_PUBLIC_API_URL`
+- No firewall/proxy blocking
+
+---
+
+## GROQ_API_KEY Error
+
+Get API key from:
+
+https://console.groq.com
+
+Update:
+
+```text
+backend/.env
+```
+
+---
+
+## Database Errors
+
+Run:
+
+```bash
+python create_tables.py
+```
+
+---
+
+## Windows Issues
+
+Use:
+
+```powershell
+.\run.ps1
+```
+
+instead of Linux shell commands.
+
+---
+
+# Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| GROQ_API_KEY | Yes | Groq API key |
+| JWT_SECRET_KEY | Yes | JWT signing secret |
+| DATABASE_URL | No | Database connection URL |
+| NEXT_PUBLIC_API_URL | Yes | Backend API URL |
+
+---
+
+# Project Structure
+
+```text
+codechat/
+│
+├── backend/
+├── frontend/
+├── .github/workflows/
+├── docs/
+├── examples/
+│
+├── README.md
+├── LICENSE
+├── CONTRIBUTING.md
+├── ROADMAP.md
+├── .env.example
+│
+├── run.sh
+├── run.ps1
+└── docker-compose.yml
+```
+
+---
+
+# Future Scope
+
+- Dependency graph visualization
+- Repository architecture mapping
+- Agentic repository exploration
+- Vulnerability-aware code analysis
+- Multi-repository semantic search
+- MCP/tool integration support
+- Team collaboration features
+
+---
+
+# Contributing
+
+Contributions are welcome.
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit changes
+4. Open a pull request
+
+Please follow clean coding practices and proper documentation standards.
+
+---
+
+# License
+
+This project is licensed under the MIT License.
